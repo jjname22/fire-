@@ -1,0 +1,955 @@
+--[[
+    Fire · Village  v12
+    One master toggle runs everything.
+    One "missions" sub-tab holds delivery / trash / rescue / accept.
+]]
+
+local Library = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/jjname22/Fire-ui-libary/refs/heads/main/fire_lib.lua"
+))()
+
+local Window = Library:Window({
+    Title       = "Fire · Village",
+    Logo        = "flame",
+    ConfigFolder= "FireVillage",
+    MenuKey     = Enum.KeyCode.Insert,
+})
+Window:CreateSettingSystem()
+Window:CreateKeybindList()
+Window:CreateConfigSystem()
+
+-- ─────────────────────────────────────────────────────────────
+-- Services
+-- ─────────────────────────────────────────────────────────────
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui          = game:GetService("CoreGui")
+local LP               = Players.LocalPlayer
+
+-- ─────────────────────────────────────────────────────────────
+-- State
+-- ─────────────────────────────────────────────────────────────
+local Villages = {
+    ["Leaf Village"]  = Vector3.new(-5012, 1024,  1336),
+    ["Sand Village"]  = Vector3.new(-3177, 1241, -5216),
+    ["Stone Village"] = Vector3.new( 3565, 1364, -1248),
+    ["Mist Village"]  = Vector3.new( -723,  481,  5429),
+}
+
+local S = {
+    -- master
+    Running        = false,
+
+    -- which jobs are active
+    DoDelivery     = false,
+    DoTrash        = false,
+    DoMission      = false,
+    DoRescue       = false,
+
+    -- movement
+    Method         = "Tween",   -- "Tween" | "TP"
+    TweenSpeed     = 120,
+    SafeSpot       = false,
+    SafePos        = Vector3.new(-5948, 1451, 51),
+
+    -- timings
+    FireDelay      = 0.15,
+    TrashWait      = 3,
+    RescueFires    = 3,
+    MissionPause   = 1.5,
+
+    -- player movement
+    SpeedOn        = false,
+    SpeedVal       = 32,
+    FlyOn          = false,
+    FlySpeed       = 60,
+    Noclip         = false,
+    InfJump        = false,
+    NoFall         = true,
+
+    -- esp
+    EspOn          = false,
+    EspBox         = true,
+    EspName        = true,
+    EspDist        = true,
+    EspMaxDist     = 2000,
+    EspColor       = Color3.fromRGB(255, 120, 40),
+
+    -- webhook
+    WebhookOn      = false,
+    WebhookUrl     = "",
+    WebhookMin     = 1,
+    WebhookSec     = 0,
+
+    -- session counters (reset on master on)
+    StartMoney     = 0,
+    SessionStart   = os.clock(),
+    LastMoney      = 0,
+    DeliveryDone   = 0,
+    TrashDone      = 0,
+    RescueDone     = 0,
+    Busy           = nil,
+    GoalMoney      = 100000,
+    GoalDelivery   = 50,
+    GoalTrash      = 30,
+    GoalRescue     = 20,
+}
+
+local function lock(name)
+    while RT.alive and S.Busy and S.Busy ~= name do
+        task.wait(0.2)
+    end
+    S.Busy = name
+end
+
+local function unlock(name)
+    if S.Busy == name then S.Busy = nil end
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- Runtime guard  (clean restart on re-exec)
+-- ─────────────────────────────────────────────────────────────
+if _G.FVRuntime then
+    pcall(function() _G.FVRuntime:Stop() end)
+end
+
+local RT = { alive = true, conns = {}, threads = {} }
+_G.FVRuntime = RT
+
+function RT:on(sig, fn)
+    local c = sig:Connect(function(...) if self.alive then fn(...) end end)
+    self.conns[#self.conns+1] = c
+end
+
+function RT:go(fn)
+    local th
+    th = task.spawn(function()
+        local ok, err = pcall(fn)
+        self.threads[th] = nil
+        if not ok then warn("[Fire]", err) end
+    end)
+    self.threads[th] = true
+    return th
+end
+
+function RT:Stop()
+    self.alive = false
+    for _, c in ipairs(self.conns) do pcall(function() c:Disconnect() end) end
+    for th in pairs(self.threads) do pcall(task.cancel, th) end
+    table.clear(self.conns)
+    table.clear(self.threads)
+    if _G.FVRuntime == self then _G.FVRuntime = nil end
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- Character
+-- ─────────────────────────────────────────────────────────────
+local function char()
+    local c   = LP.Character
+    local hum = c and c:FindFirstChildOfClass("Humanoid")
+    local hrp = c and c:FindFirstChild("HumanoidRootPart")
+    if hum and hrp and hum.Health > 0 then return c, hum, hrp end
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- Movement primitives
+-- ─────────────────────────────────────────────────────────────
+local function tpTo(pos)
+    local _, _, hrp = char(); if not hrp then return end
+    hrp.CFrame = CFrame.new(pos + Vector3.new(0, 4, 0))
+end
+
+local function tweenTo(pos, spd)
+    local _, _, hrp = char(); if not hrp then return end
+    spd = spd or S.TweenSpeed
+    local goal = pos + Vector3.new(0, 3, 0)
+    local t    = math.clamp((hrp.Position - goal).Magnitude / math.max(spd, 1), 0.05, 12)
+    local tw   = TweenService:Create(hrp, TweenInfo.new(t, Enum.EasingStyle.Linear), { CFrame = CFrame.new(goal) })
+    tw:Play(); tw.Completed:Wait()
+end
+
+local function moveTo(pos)
+    if S.Method == "TP" then tpTo(pos) else tweenTo(pos) end
+end
+
+local function goSafe()
+    tpTo(S.SafePos)
+end
+
+local function standOn(part)
+    local _, _, hrp = char(); if not hrp or not part then return end
+    local bp = part:IsA("BasePart") and part or part:FindFirstChildWhichIsA("BasePart")
+    if not bp then return end
+    hrp.CFrame                   = CFrame.new(bp.Position + Vector3.new(0, 4, 0))
+    hrp.AssemblyLinearVelocity   = Vector3.zero
+    hrp.AssemblyAngularVelocity  = Vector3.zero
+end
+
+local function partPos(part)
+    if not part then return nil end
+    if part:IsA("BasePart") then return part.Position end
+    local bp = part:FindFirstChildWhichIsA("BasePart")
+    return bp and bp.Position
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- Touch / click
+-- ─────────────────────────────────────────────────────────────
+local function fireTouch(part)
+    if not part then return end
+    local _, _, hrp = char(); if not hrp then return end
+    local ti = part:FindFirstChildOfClass("TouchTransmitter") or part:FindFirstChild("TouchInterest")
+    if ti and firetouchinterest then
+        pcall(firetouchinterest, part, hrp, 0)
+        task.wait(0.05)
+        pcall(firetouchinterest, part, hrp, 1)
+    else
+        local old = hrp.CFrame
+        hrp.CFrame = part.CFrame
+        task.wait(0.05)
+        hrp.CFrame = old
+    end
+end
+
+local function fireClick(d)
+    if d and d:IsA("ClickDetector") and fireclickdetector then
+        pcall(fireclickdetector, d)
+    end
+end
+
+-- fire touch + every click detector inside
+local function fireAll(part)
+    if not part then return end
+    fireTouch(part)
+    for _, d in ipairs(part:GetDescendants()) do fireClick(d) end
+end
+
+local function waitGone(part, limit)
+    local t0 = os.clock()
+    while part and part.Parent and os.clock() - t0 < (limit or 12) do
+        if not RT.alive then return end
+        task.wait(0.15)
+    end
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- Stats / webhook
+-- ─────────────────────────────────────────────────────────────
+local function getMoney()
+    local ok, t = pcall(function() return LP.PlayerGui.HUD.Display.Ryo.Text end)
+    if not ok or not t then return S.LastMoney end
+    local n = tonumber((tostring(t):gsub("[^%d%.]", ""))) or 0
+    S.LastMoney = n; return n
+end
+
+local function fmt(n)
+    n = math.floor(n + 0.5)
+    if n >= 1e6 then return ("%.2fM"):format(n/1e6) end
+    if n >= 1e3 then return ("%.1fK"):format(n/1e3) end
+    return tostring(n)
+end
+
+local function bar(current, goal, emoji)
+    local pct = math.clamp(current / math.max(goal, 1), 0, 1)
+    local filled = math.floor(pct * 10)
+    return emoji:rep(filled) .. "░":rep(10 - filled) .. " " .. math.floor(pct * 100) .. "%"
+end
+
+local function sendWebhook(reason)
+    if not S.WebhookOn or S.WebhookUrl == "" then return end
+    local money   = getMoney()
+    local elapsed = math.max(os.clock() - S.SessionStart, 1)
+    local gained  = money - S.StartMoney
+    local pMin    = gained / (elapsed / 60)
+    local pHour   = pMin * 60
+    local mins, secs = math.floor(elapsed/60), math.floor(elapsed%60)
+    local desc = "**"..(reason or "update").."**\n\n"
+    desc = desc .. "🟦 Money\n" .. bar(money, S.GoalMoney, "🟦") .. "\n\n"
+    desc = desc .. "🟩 Delivery\n" .. bar(S.DeliveryDone, S.GoalDelivery, "🟩") .. "\n\n"
+    desc = desc .. "🟥 Trash\n" .. bar(S.TrashDone, S.GoalTrash, "🟥") .. "\n\n"
+    desc = desc .. "🟨 Rescue\n" .. bar(S.RescueDone, S.GoalRescue, "🟨")
+    pcall(function()
+        local HS   = game:GetService("HttpService")
+        local body = HS:JSONEncode({ username = "Fire Village", embeds = {{ 
+            title       = "🔥 Fire Village",
+            description = desc,
+            color       = S.Running and 5763719 or 15548997,
+            fields      = {
+                { name="Status",   value=S.Running and "🟢 Running" or "🔴 Stopped", inline=true },
+                { name="Money",    value="`"..fmt(money).." / "..fmt(S.GoalMoney).."`", inline=true },
+                { name="Gained",   value="`+"..fmt(gained).."`", inline=true },
+                { name="Per Min",  value="`"..fmt(pMin).."`",    inline=true },
+                { name="Per Hour", value="`"..fmt(pHour).."`",   inline=true },
+                { name="Session",  value=string.format("`%dm %ds`",mins,secs), inline=true },
+            },
+            footer    = { text = "Fire Village · "..os.date("%Y-%m-%d %H:%M:%S") },
+            timestamp = DateTime.now():ToIsoDate(),
+        }}})
+        local req = (syn and syn.request) or (http and http.request) or request or http_request
+        if req then req({ Url=S.WebhookUrl, Method="POST", Headers={["Content-Type"]="application/json"}, Body=body }) end
+    end)
+end
+
+local function webhookLoop()
+    while RT.alive and S.WebhookOn and S.Running do
+        local w = math.max(S.WebhookMin*60 + S.WebhookSec, 15)
+        sendWebhook("scheduled update")
+        task.wait(w)
+    end
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- FARM LOOPS  (each checks RT.alive + S.Running every iteration)
+-- ─────────────────────────────────────────────────────────────
+
+-- helper: get current village mission model
+local function getMission()
+    local bin = workspace:FindFirstChild("vmBin")
+    return bin and bin:FindFirstChild("frikashi5's village mission")
+end
+
+-- ── Delivery: move to Letter / DeliverPart, fire, go safe ───
+local function loopDelivery()
+    while RT.alive and S.Running and S.DoDelivery do
+        lock("delivery")
+        local mission = getMission()
+        if not mission then
+            if S.SafeSpot then goSafe() end
+            task.wait(1); continue
+        end
+        for _, name in ipairs({ "Letter", "DeliverPart" }) do
+            if not (RT.alive and S.Running and S.DoDelivery) then break end
+            local part = mission:FindFirstChild(name)
+            if part then
+                local pos = partPos(part)
+                if pos then moveTo(pos) end
+                task.wait(0.15)
+                fireAll(part)
+                task.wait(S.FireDelay)
+                S.DeliveryDone += 1
+            end
+        end
+        if S.SafeSpot then goSafe() end
+        unlock("delivery")
+        task.wait(0.3)
+    end
+    unlock("delivery")
+end
+
+-- ── Trash: stand on each TrashPart, fire, wait it despawns ──
+local function loopTrash()
+    while RT.alive and S.Running and S.DoTrash do
+        lock("trash")
+        local mission = getMission()
+        if not mission then
+            if S.SafeSpot then goSafe() end
+            task.wait(1); continue
+        end
+        local found = false
+        for _, child in ipairs(mission:GetChildren()) do
+            if not (RT.alive and S.Running and S.DoTrash) then break end
+            if child.Name:lower():find("trash") then
+                found = true
+                local pos = partPos(child)
+                if pos then
+                    if S.Method == "TP" then
+                        standOn(child)
+                    else
+                        tweenTo(pos); task.wait(0.1); standOn(child)
+                    end
+                end
+                task.wait(0.2)
+                fireAll(child)
+                waitGone(child, S.TrashWait + 2)
+                S.TrashDone += 1
+            end
+        end
+        if not found then unlock("trash"); task.wait(1); continue end
+        if S.SafeSpot then goSafe() end
+        unlock("trash")
+        task.wait(0.3)
+    end
+    unlock("trash")
+end
+
+-- ── Mission accept: click boards in-place ───────────────────
+local function loopMission()
+    while RT.alive and S.Running and S.DoMission do
+        local boards = workspace:FindFirstChild("MissionBoards")
+        if boards then
+            for _, board in ipairs(boards:GetChildren()) do
+                local cp = board:FindFirstChild("Clickpart") or board:FindFirstChild("ClickPart")
+                if cp then
+                    local meh = cp:FindFirstChild("Meh") or cp
+                    if meh:IsA("BasePart") then fireTouch(meh) end
+                    for _, d in ipairs(cp:GetDescendants()) do fireClick(d) end
+                end
+            end
+        end
+        task.wait(S.MissionPause)
+    end
+end
+
+-- ── Rescue: TP door → safe → fire arena + prisoner ──────────
+local function loopRescue()
+    while RT.alive and S.Running and S.DoRescue do
+        lock("rescue")
+        local boxes  = workspace:FindFirstChild("MissionBoxes")
+        local rescue = boxes and boxes:FindFirstChild("LeafRescue")
+        if not rescue then
+            if S.SafeSpot then goSafe() end
+            task.wait(1); continue
+        end
+        local door     = rescue:FindFirstChild("DoorSensorPart")
+        local arena    = rescue:FindFirstChild("ArenaSensorPart")
+        local prisoner = rescue:FindFirstChild("PrisonerSensorPart")
+        task.wait(2)
+        if door then
+            standOn(door); task.wait(0.2)
+            fireTouch(door); task.wait(S.FireDelay)
+        end
+        goSafe(); task.wait(0.35)
+        if arena    then for _=1, S.RescueFires do fireTouch(arena);    task.wait(S.FireDelay) end end
+        if prisoner then for _=1, S.RescueFires do fireTouch(prisoner); task.wait(S.FireDelay) end end
+        S.RescueDone += 1
+        unlock("rescue")
+        task.wait(0.8)
+    end
+    unlock("rescue")
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- Master start / stop (called by the main toggle)
+-- ─────────────────────────────────────────────────────────────
+local function startFarm()
+    S.Running      = true
+    S.StartMoney   = getMoney()
+    S.SessionStart = os.clock()
+    S.DeliveryDone = 0
+    S.TrashDone    = 0
+    S.RescueDone   = 0
+    if S.DoDelivery then RT:go(loopDelivery) end
+    if S.DoTrash    then RT:go(loopTrash)    end
+    if S.DoMission  then RT:go(loopMission)  end
+    if S.DoRescue   then RT:go(loopRescue)   end
+    if S.WebhookOn  then RT:go(webhookLoop)  end
+    sendWebhook("session started")
+    Window:Notify("Farm", "running", "play", 2)
+end
+
+local function stopFarm()
+    S.Running = false
+    sendWebhook("session stopped")
+    Window:Notify("Farm", "stopped", "square", 2)
+end
+
+-- helper: restart a single job if farm is already running
+local function kickJob(flag, loopFn)
+    if S.Running and flag then RT:go(loopFn) end
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- Player movement
+-- ─────────────────────────────────────────────────────────────
+RT:on(RunService.Heartbeat, function()
+    if not S.NoFall then return end
+    local _, hum, hrp = char(); if not hum then return end
+    local st = hum:GetState()
+    if st == Enum.HumanoidStateType.Freefall
+    or st == Enum.HumanoidStateType.FallingDown
+    or st == Enum.HumanoidStateType.Ragdoll then
+        pcall(function()
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            hum:ChangeState(Enum.HumanoidStateType.Running)
+        end)
+        if hrp then
+            local v = hrp.AssemblyLinearVelocity
+            if v.Y < -50 then hrp.AssemblyLinearVelocity = Vector3.new(v.X, -50, v.Z) end
+        end
+    end
+end)
+
+RT:on(RunService.Heartbeat, function()
+    local _, hum, c2 = char(); if not hum then return end
+    if S.SpeedOn  then hum.WalkSpeed = S.SpeedVal end
+    if S.Noclip and c2 then
+        for _, p in ipairs(c2:GetDescendants()) do
+            if p:IsA("BasePart") then p.CanCollide = false end
+        end
+    end
+end)
+
+-- fly
+local flyBV, flyBG
+local lastRebuild = 0
+
+local function stopFly()
+    if flyBV then pcall(function() flyBV:Destroy() end); flyBV = nil end
+    if flyBG then pcall(function() flyBG:Destroy() end); flyBG = nil end
+end
+
+local function ensureFly()
+    local _, _, hrp = char(); if not hrp then stopFly(); return end
+    if flyBV and flyBV.Parent == hrp then return hrp end
+    stopFly()
+    flyBV = Instance.new("BodyVelocity")
+    flyBV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    flyBV.Velocity = Vector3.zero
+    flyBV.Parent   = hrp
+    flyBG = Instance.new("BodyGyro")
+    flyBG.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    flyBG.P         = 9e4
+    flyBG.Parent    = hrp
+    lastRebuild = os.clock()
+    return hrp
+end
+
+RT:on(RunService.RenderStepped, function()
+    if not S.FlyOn then if flyBV then stopFly() end; return end
+    if not flyBV or not flyBV.Parent or os.clock()-lastRebuild > 1 then ensureFly() end
+    local hrp = ensureFly(); if not hrp or not flyBV then return end
+    local cam = workspace.CurrentCamera; if not cam then return end
+    local dir = Vector3.zero
+    if UIS:IsKeyDown(Enum.KeyCode.W)           then dir += cam.CFrame.LookVector  end
+    if UIS:IsKeyDown(Enum.KeyCode.S)           then dir -= cam.CFrame.LookVector  end
+    if UIS:IsKeyDown(Enum.KeyCode.A)           then dir -= cam.CFrame.RightVector end
+    if UIS:IsKeyDown(Enum.KeyCode.D)           then dir += cam.CFrame.RightVector end
+    if UIS:IsKeyDown(Enum.KeyCode.Space)       then dir += Vector3.yAxis           end
+    if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dir -= Vector3.yAxis           end
+    flyBV.Velocity = dir.Magnitude > 0 and dir.Unit * S.FlySpeed or Vector3.zero
+    if flyBG then flyBG.CFrame = cam.CFrame end
+end)
+
+local UIS = UserInputService
+RT:on(UIS.JumpRequest, function()
+    if S.InfJump and not UIS:GetFocusedTextBox() then
+        local _, hum = char(); if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+    end
+end)
+
+-- ─────────────────────────────────────────────────────────────
+-- ESP
+-- ─────────────────────────────────────────────────────────────
+local espGui = Instance.new("Folder"); espGui.Name = "FireESP"; espGui.Parent = CoreGui
+local espObjs = {}
+
+local function clearEsp()
+    for _, v in pairs(espObjs) do
+        pcall(function() v.bill:Destroy() end)
+        pcall(function() v.hl:Destroy() end)
+    end
+    table.clear(espObjs)
+end
+
+local function addEsp(plr)
+    if plr == LP or espObjs[plr] then return end
+    local c = plr.Character; local hrp = c and c:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    local bill  = Instance.new("BillboardGui")
+    bill.Adornee = hrp; bill.Size = UDim2.fromOffset(120,40)
+    bill.AlwaysOnTop = true; bill.Parent = espGui
+    local lbl   = Instance.new("TextLabel", bill)
+    lbl.Size = UDim2.fromScale(1,1); lbl.BackgroundTransparency = 1
+    lbl.TextColor3 = S.EspColor; lbl.TextStrokeTransparency = 0.4
+    lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 13
+    local hl    = Instance.new("Highlight")
+    hl.Adornee = c; hl.FillColor = S.EspColor
+    hl.OutlineColor = Color3.new(1,1,1); hl.FillTransparency = 0.7
+    hl.OutlineTransparency = 0; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = espGui
+    espObjs[plr] = { bill=bill, lbl=lbl, hl=hl }
+end
+
+RT:on(RunService.RenderStepped, function()
+    if not S.EspOn then if next(espObjs) then clearEsp() end; return end
+    local cam = workspace.CurrentCamera; if not cam then return end
+    local seen = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == LP then continue end
+        local c = plr.Character; local hrp = c and c:FindFirstChild("HumanoidRootPart")
+        if not hrp then continue end
+        local dist = (hrp.Position - cam.CFrame.Position).Magnitude
+        if dist > S.EspMaxDist then continue end
+        seen[plr] = true
+        if not espObjs[plr] then addEsp(plr) end
+        local obj = espObjs[plr]
+        if obj then
+            local txt = S.EspName and plr.DisplayName or ""
+            if S.EspDist then txt = txt..(txt~="" and "\n" or "")..("%.0fm"):format(dist) end
+            obj.lbl.Text = txt; obj.lbl.TextColor3 = S.EspColor
+            if obj.hl then obj.hl.FillColor = S.EspColor; obj.hl.Enabled = S.EspBox end
+        end
+    end
+    for plr, obj in pairs(espObjs) do
+        if not seen[plr] then
+            pcall(function() obj.bill:Destroy() end)
+            pcall(function() obj.hl:Destroy() end)
+            espObjs[plr] = nil
+        end
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    if espObjs[plr] then
+        pcall(function() espObjs[plr].bill:Destroy() end)
+        pcall(function() espObjs[plr].hl:Destroy() end)
+        espObjs[plr] = nil
+    end
+end)
+
+-- ─────────────────────────────────────────────────────────────
+-- UI  ─  layout:
+--   Tab: farm
+--     SubTab: missions   ← everything farm-related lives here
+--     SubTab: settings   ← timings + method + safe
+--     SubTab: stats      ← webhook + calc + village tps
+--   Tab: movement
+--   Tab: esp
+--   Tab: misc
+-- ─────────────────────────────────────────────────────────────
+local TabFarm  = Window:Tab({ Name = "farm",     Icon = "flame" })
+local TabMove  = Window:Tab({ Name = "movement", Icon = "person-standing" })
+local TabEsp   = Window:Tab({ Name = "esp",      Icon = "eye" })
+local TabMisc  = Window:Tab({ Name = "misc",     Icon = "settings" })
+
+local SubMis   = TabFarm:SubTab({ Name = "missions",  Icon = "package" })
+local SubSet   = TabFarm:SubTab({ Name = "settings",  Icon = "sliders-horizontal" })
+local SubStats = TabFarm:SubTab({ Name = "stats",     Icon = "bar-chart" })
+
+-- missions sub-tab sections
+local SecMain  = SubMis:Section({ Name = "auto farm",   Side = "Left",  Icon = "play" })
+local SecJobs  = SubMis:Section({ Name = "jobs",        Side = "Left",  Icon = "list-checks" })
+local SecQuick = SubMis:Section({ Name = "quick fire",  Side = "Right", Icon = "zap" })
+
+-- settings sub-tab sections
+local SecOpt   = SubSet:Section({ Name = "options",     Side = "Left",  Icon = "sliders-horizontal" })
+local SecSafe  = SubSet:Section({ Name = "safe spot",   Side = "Right", Icon = "map-pin" })
+
+-- stats sub-tab sections
+local SecHook  = SubStats:Section({ Name = "webhook",      Side = "Left",  Icon = "send" })
+local SecCalc  = SubStats:Section({ Name = "calculations", Side = "Right", Icon = "calculator" })
+local SecTP    = SubStats:Section({ Name = "village tps",  Side = "Right", Icon = "map-pin" })
+
+-- movement / esp / misc sections
+local SecMove  = TabMove:SubTab({ Name = "player", Icon = "gauge" }):Section({ Name = "movement", Side = "Left", Icon = "gauge" })
+local SecEsp   = TabEsp:SubTab({ Name = "players", Icon = "scan"  }):Section({ Name = "player esp", Side = "Left", Icon = "eye" })
+local SecMod   = TabMisc:SubTab({ Name = "mod check", Icon = "shield" }):Section({ Name = "mod check", Side = "Left", Icon = "shield" })
+local SecUtil  = TabMisc:SubTab({ Name = "utility", Icon = "wrench" }):Section({ Name = "utility", Side = "Left", Icon = "wrench" })
+
+-- ─────────────────────────────────────────────────────────────
+-- MISSIONS SUB-TAB UI
+-- ─────────────────────────────────────────────────────────────
+
+-- ── Master toggle ────────────────────────────────────────────
+SecMain:Toggle({
+    Name    = "auto farm",
+    Flag    = "master",
+    Default = false,
+    Callback = function(v)
+        if v then startFarm() else stopFarm() end
+    end
+})
+
+-- ── Individual job toggles ───────────────────────────────────
+SecJobs:Toggle({
+    Name    = "delivery  (letter + deliver part)",
+    Flag    = "do_del",
+    Default = false,
+    Callback = function(v)
+        S.DoDelivery = v
+        kickJob(v, loopDelivery)
+    end
+})
+
+SecJobs:Toggle({
+    Name    = "trash  (stand · fire · wait despawn)",
+    Flag    = "do_trash",
+    Default = false,
+    Callback = function(v)
+        S.DoTrash = v
+        kickJob(v, loopTrash)
+    end
+})
+
+SecJobs:Toggle({
+    Name    = "accept missions  (click boards)",
+    Flag    = "do_mis",
+    Default = false,
+    Callback = function(v)
+        S.DoMission = v
+        kickJob(v, loopMission)
+    end
+})
+
+SecJobs:Toggle({
+    Name    = "rescue  (door tp → safe → fire)",
+    Flag    = "do_rescue",
+    Default = false,
+    Callback = function(v)
+        S.DoRescue = v
+        kickJob(v, loopRescue)
+    end
+})
+
+-- ── Quick-fire buttons (one-shot, farm doesn't need to be on) ─
+SecQuick:Button({
+    Name = "fire delivery once",
+    Callback = function()
+        RT:go(function()
+            local m = getMission()
+            if not m then Window:Notify("Delivery","no mission","x",2); return end
+            for _, name in ipairs({"Letter","DeliverPart"}) do
+                local p = m:FindFirstChild(name)
+                if p then
+                    local pos = partPos(p)
+                    if pos then moveTo(pos) end
+                    task.wait(0.15); fireAll(p); task.wait(S.FireDelay)
+                end
+            end
+            if S.SafeSpot then goSafe() end
+            Window:Notify("Delivery","done","check",2)
+        end)
+    end
+})
+
+SecQuick:Button({
+    Name = "fire trash once",
+    Callback = function()
+        RT:go(function()
+            local m = getMission()
+            if not m then Window:Notify("Trash","no mission","x",2); return end
+            local n = 0
+            for _, child in ipairs(m:GetChildren()) do
+                if child.Name:lower():find("trash") then
+                    standOn(child); task.wait(0.2)
+                    fireAll(child); waitGone(child, S.TrashWait+2); n+=1
+                end
+            end
+            if n==0 then Window:Notify("Trash","nothing found","x",2); return end
+            if S.SafeSpot then goSafe() end
+            Window:Notify("Trash","done ("..n.."x)","check",2)
+        end)
+    end
+})
+
+SecQuick:Button({
+    Name = "accept mission now",
+    Callback = function()
+        local boards = workspace:FindFirstChild("MissionBoards")
+        if not boards then Window:Notify("Mission","no boards","x",2); return end
+        for _, board in ipairs(boards:GetChildren()) do
+            local cp = board:FindFirstChild("Clickpart") or board:FindFirstChild("ClickPart")
+            if cp then
+                local meh = cp:FindFirstChild("Meh") or cp
+                if meh:IsA("BasePart") then fireTouch(meh) end
+                for _, d in ipairs(cp:GetDescendants()) do fireClick(d) end
+            end
+        end
+        Window:Notify("Mission","accepted","check",2)
+    end
+})
+
+SecQuick:Button({
+    Name = "fire rescue once",
+    Callback = function()
+        RT:go(function()
+            local boxes  = workspace:FindFirstChild("MissionBoxes")
+            local rescue = boxes and boxes:FindFirstChild("LeafRescue")
+            if not rescue then Window:Notify("Rescue","not found","x",2); return end
+            local door     = rescue:FindFirstChild("DoorSensorPart")
+            local arena    = rescue:FindFirstChild("ArenaSensorPart")
+            local prisoner = rescue:FindFirstChild("PrisonerSensorPart")
+            task.wait(2)
+            if door then standOn(door); task.wait(0.2); fireTouch(door); task.wait(S.FireDelay) end
+            goSafe(); task.wait(0.35)
+            if arena    then for _=1,S.RescueFires do fireTouch(arena);    task.wait(S.FireDelay) end end
+            if prisoner then for _=1,S.RescueFires do fireTouch(prisoner); task.wait(S.FireDelay) end end
+            Window:Notify("Rescue","done","check",2)
+        end)
+    end
+})
+
+-- ─────────────────────────────────────────────────────────────
+-- SETTINGS SUB-TAB UI
+-- ─────────────────────────────────────────────────────────────
+SecOpt:Dropdown({
+    Name    = "movement method",
+    Flag    = "method",
+    List    = { "Tween", "TP" },
+    Default = "Tween",
+    Callback = function(v) S.Method = v end
+})
+SecOpt:Slider({
+    Name = "tween speed",
+    Flag = "tspd", Min = 40, Max = 400, Default = 120,
+    Callback = function(v) S.TweenSpeed = v end
+})
+SecOpt:Slider({
+    Name = "fire delay",
+    Flag = "fdly", Min = 0.05, Max = 1, Default = 0.15, Step = 0.05,
+    Callback = function(v) S.FireDelay = v end
+})
+SecOpt:Slider({
+    Name = "trash wait (sec)",
+    Flag = "twait", Min = 0.5, Max = 10, Default = 3, Step = 0.5,
+    Callback = function(v) S.TrashWait = v end
+})
+SecOpt:Slider({
+    Name = "rescue fire count",
+    Flag = "rfires", Min = 1, Max = 10, Default = 3,
+    Callback = function(v) S.RescueFires = v end
+})
+SecOpt:Slider({
+    Name = "mission board pause",
+    Flag = "mpause", Min = 0.5, Max = 5, Default = 1.5, Step = 0.5,
+    Callback = function(v) S.MissionPause = v end
+})
+
+SecSafe:Toggle({
+    Name    = "safe spot",
+    Flag    = "safe_on",
+    Default = false,
+    Callback = function(v)
+        S.SafeSpot = v
+        if v then goSafe(); Window:Notify("Safe","parked","map-pin",2) end
+    end
+})
+SecSafe:Button({
+    Name = "go safe now",
+    Callback = function() goSafe(); Window:Notify("Safe","teleported","map-pin",2) end
+})
+
+-- ─────────────────────────────────────────────────────────────
+-- STATS SUB-TAB UI
+-- ─────────────────────────────────────────────────────────────
+SecHook:Toggle({
+    Name = "webhook", Flag = "hook_on", Default = false,
+    Callback = function(v)
+        S.WebhookOn = v
+        if v and S.Running then RT:go(webhookLoop) end
+    end
+})
+SecHook:Input({
+    Name = "url", Flag = "hook_url",
+    Placeholder = "paste discord webhook...", Default = "",
+    Callback = function(v) S.WebhookUrl = tostring(v or "") end
+})
+SecHook:Slider({ Name="interval (min)", Flag="hook_min", Min=0, Max=30, Default=1, Callback=function(v) S.WebhookMin=v end })
+SecHook:Slider({ Name="+ seconds",      Flag="hook_sec", Min=0, Max=59, Default=0, Callback=function(v) S.WebhookSec=v end })
+SecHook:Slider({ Name="goal money", Flag="goal_money", Min=1000, Max=10000000, Default=100000, Callback=function(v) S.GoalMoney=v end })
+SecHook:Slider({ Name="goal delivery", Flag="goal_del", Min=1, Max=500, Default=50, Callback=function(v) S.GoalDelivery=v end })
+SecHook:Slider({ Name="goal trash", Flag="goal_trash", Min=1, Max=500, Default=30, Callback=function(v) S.GoalTrash=v end })
+SecHook:Slider({ Name="goal rescue", Flag="goal_rescue", Min=1, Max=500, Default=20, Callback=function(v) S.GoalRescue=v end })
+SecHook:Button({ Name="test ping", Callback=function()
+    if S.WebhookUrl=="" then Window:Notify("Webhook","no url","x",2); return end
+    sendWebhook("test ping"); Window:Notify("Webhook","sent","check",2)
+end })
+
+SecCalc:Button({ Name="show stats", Callback=function()
+    local money   = getMoney()
+    local elapsed = math.max(os.clock()-S.SessionStart,1)
+    local gained  = money - S.StartMoney
+    local pMin    = gained/(elapsed/60)
+    Window:Notify("Stats",
+        ("💰 %s  |  +%s  |  %s/min  |  %s/hr  |  del %d  trash %d  rescue %d"):format(
+            fmt(money), fmt(gained), fmt(pMin), fmt(pMin*60),
+            S.DeliveryDone, S.TrashDone, S.RescueDone),
+        "bar-chart", 6)
+end })
+SecCalc:Button({ Name="reset session", Callback=function()
+    S.StartMoney=getMoney(); S.SessionStart=os.clock()
+    S.DeliveryDone=0; S.TrashDone=0; S.RescueDone=0
+    Window:Notify("Stats","reset","check",2)
+end })
+
+for name, pos in pairs(Villages) do
+    SecTP:Button({ Name="→ "..name, Callback=function()
+        tpTo(pos); Window:Notify("TP", name, "map-pin", 2)
+    end })
+end
+
+-- ─────────────────────────────────────────────────────────────
+-- MOVEMENT UI
+-- ─────────────────────────────────────────────────────────────
+SecMove:Toggle({ Name="speed",    Flag="mv_spd",   Default=false, Callback=function(v) S.SpeedOn=v end })
+SecMove:Slider({ Name="speed val",Flag="mv_sval",  Min=16, Max=200, Default=32, Callback=function(v) S.SpeedVal=v end })
+SecMove:Toggle({ Name="fly",      Flag="mv_fly",   Default=false, Callback=function(v) S.FlyOn=v; if not v then stopFly() end end })
+SecMove:Slider({ Name="fly speed",Flag="mv_fspd",  Min=10, Max=300, Default=60, Callback=function(v) S.FlySpeed=v end })
+SecMove:Toggle({ Name="noclip",   Flag="mv_clip",  Default=false, Callback=function(v) S.Noclip=v end })
+SecMove:Toggle({ Name="inf jump", Flag="mv_ijmp",  Default=false, Callback=function(v) S.InfJump=v end })
+SecMove:Toggle({ Name="no fall",  Flag="mv_fall",  Default=true,  Callback=function(v) S.NoFall=v end })
+
+-- ─────────────────────────────────────────────────────────────
+-- ESP UI
+-- ─────────────────────────────────────────────────────────────
+SecEsp:Toggle({ Name="enabled",        Flag="esp_on",   Default=false, Callback=function(v) S.EspOn=v; if not v then clearEsp() end end })
+SecEsp:Toggle({ Name="box / highlight",Flag="esp_box",  Default=true,  Callback=function(v) S.EspBox=v end })
+SecEsp:Toggle({ Name="name",           Flag="esp_name", Default=true,  Callback=function(v) S.EspName=v end })
+SecEsp:Toggle({ Name="distance",       Flag="esp_dist", Default=true,  Callback=function(v) S.EspDist=v end })
+SecEsp:Slider({ Name="max distance",   Flag="esp_max",  Min=100, Max=5000, Default=2000, Callback=function(v) S.EspMaxDist=v end })
+SecEsp:ColorPicker({ Name="color", Flag="esp_col", Default=Color3.fromRGB(255,120,40), Callback=function(c) S.EspColor=c end })
+
+-- ─────────────────────────────────────────────────────────────
+-- MISC / UTILITY UI
+-- ─────────────────────────────────────────────────────────────
+local ROLES = {
+    ["Member"] = 1, ["Player"] = 1, ["Advisor"] = 4, ["Kage"] = 5,
+    ["Lore Team"] = 249, ["Administration"] = 250, ["Management"] = 252,
+    ["Engineer"] = 254, ["Owner"] = 255
+}
+local modAction = "Notify"
+SecMod:Dropdown({
+    Name = "action", Flag = "mod_action",
+    List = { "Notify", "Leave", "Webhook", "Leave + Webhook" },
+    Default = "Notify",
+    Callback = function(v) modAction = v end
+})
+SecMod:Toggle({
+    Name = "enabled", Flag = "mod_on", Default = false,
+    Callback = function(v)
+        if not v then return end
+        RT:go(function()
+            while RT.alive and v do
+                for _, plr in ipairs(Players:GetPlayers()) do
+                    if plr == LP then continue end
+                    local rank = plr:GetRankInGroup(0) or 0
+                    local role = plr:GetRoleInGroup(0) or ""
+                    for name, minRank in pairs(ROLES) do
+                        if rank >= minRank and rank >= 240 then
+                            if modAction == "Notify" or modAction == "Leave + Webhook" then
+                                Window:Notify("Mod", plr.Name .. " (" .. role .. ")", "shield", 5)
+                            end
+                            if modAction == "Webhook" or modAction == "Leave + Webhook" then
+                                sendWebhook("mod detected: " .. plr.Name .. " (" .. role .. ")")
+                            end
+                            if modAction == "Leave" or modAction == "Leave + Webhook" then
+                                LP:Kick("mod detected")
+                            end
+                            break
+                        end
+                    end
+                end
+                task.wait(2)
+            end
+        end)
+    end
+})
+
+SecUtil:Button({ Name="stop farm", Callback=function()
+    S.Running=false; S.DoDelivery=false; S.DoTrash=false; S.DoMission=false; S.DoRescue=false
+    Window:Notify("Farm","stopped","square",2)
+end })
+SecUtil:Button({ Name="stop fly", Callback=function()
+    S.FlyOn=false; stopFly()
+    Window:Notify("Fly","stopped","square",2)
+end })
+SecUtil:Button({ Name="unload", Callback=function()
+    clearEsp(); stopFly(); RT:Stop()
+    Window:Notify("Fire","unloaded","x",2)
+end })
+
+-- ─────────────────────────────────────────────────────────────
+Window:Notify("Fire Village", "v12 · insert to toggle", "flame", 4)
+print("[Fire] Village v12 loaded")
