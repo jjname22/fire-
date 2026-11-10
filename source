@@ -254,9 +254,9 @@ end
 local function bar(current, goal, emoji)
     local pct = math.clamp(current / math.max(goal, 1), 0, 1)
     local filled = math.floor(pct * 10)
-    return emoji:rep(filled) .. "░":rep(10 - filled) .. " " .. math.floor(pct * 100) .. "%"
-end
 
+    return emoji:rep(filled) .. ("░"):rep(10 - filled) .. " " .. math.floor(pct * 100) .. "%"
+end
 local function sendWebhook(reason)
     if not S.WebhookOn or S.WebhookUrl == "" then return end
     local money   = getMoney()
