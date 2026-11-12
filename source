@@ -575,9 +575,15 @@ local function installVillage()
         return bin and player and bin:FindFirstChild(player.Name .. "'s village mission")
     end
     local function waitGone(object, seconds, token)
-        local untilTime = os.clock() + seconds
-        while active(token) and object.Parent and os.clock() < untilTime do task.wait(0.15) end
-        return active(token) and object.Parent == nil
+        if not object then return true end
+        local untilTime = os.clock() + (seconds or 2)
+        while active(token) and os.clock() < untilTime do
+            local ok, parent = pcall(function() return object.Parent end)
+            if not ok or parent == nil then return true end
+            task.wait(0.15)
+        end
+        local ok, parent = pcall(function() return object.Parent end)
+        return active(token) and (not ok or parent == nil)
     end
     local function safe(token) if state.safe and active(token) then teleport(safePos) end end
     local function interactInPlace(object, token)
@@ -604,14 +610,30 @@ local function installVillage()
         for _, name in ipairs({"Letter", "DeliverPart"}) do
             if not active(token) then return end
             local obj = m:FindFirstChild(name)
-            if obj then
-                local fired = interactInPlace(obj, token)
-                if not active(token) then return end
-                if not fired then message("Delivery interaction unavailable") end
-                if not pause(state.fireDelay, token) then return end
-                if fired and name == "DeliverPart" and waitGone(m, 2, token) then deliveries = deliveries + 1 end
+            if not obj then continue end
+            local part = partOf(obj)
+            local fired = false
+            if state.method == "Silent" then
+                fired = interactInPlace(obj, token)
+            elseif part then
+                if move(part.Position, token) and pause(0.15, token) then
+                    fired = touch(part, token) or interactInPlace(obj, token)
+                    clickAll(obj, token)
+                end
+            else
+                fired = interactInPlace(obj, token)
+            end
+            if not active(token) then return end
+            if not fired then message("Delivery interaction unavailable: " .. name) end
+            if not pause(state.fireDelay, token) then return end
+            if name == "DeliverPart" then
+                if waitGone(m, 6, token) then
+                    deliveries = deliveries + 1
+                    message("Delivery complete (" .. deliveries .. ")")
+                end
             end
         end
+        safe(token)
     end
     local function silentTrash(obj, part, named, token)
         local char, _, root = character(); if not root or not active(token) then return false end
@@ -717,11 +739,12 @@ local function installVillage()
         boardBusy = true
         local token = generation
         task.spawn(function()
+            local deadline = os.clock() + 12
             repeat
                 boardQueued = false
                 local ok, err = pcall(board, token)
                 if active(token) and not ok then boardMessage("Board error: " .. tostring(err)) end
-            until not boardQueued or not active(token)
+            until not boardQueued or not active(token) or os.clock() > deadline
             boardBusy, boardQueued = false, false
         end)
     end
@@ -879,20 +902,47 @@ local function installVillage()
         if stats then stats:SetText(string.format("Ryo +%d | Delivery %d | Trash %d | Rescue %d", money()-startMoney, deliveries, trashed, rescues)) end
     end
     local function sendHook(reason)
-        if not state.webhook or state.hookUrl == "" then return end
+        local url = tostring(state.hookUrl or ""):match("^%s*(.-)%s*$") or ""
+        if not state.webhook or url == "" then
+            message("Webhook off or URL empty")
+            return
+        end
         local req = (syn and syn.request) or (http and http.request) or request or http_request
         if type(req) ~= "function" then message("Webhook HTTP unavailable"); return end
         local elapsed = math.max(os.clock() - started, 1)
         local gained = money() - startMoney
-        local body = HttpService:JSONEncode({username = "Fire Village", embeds = {{title = "Fire Village", description = reason,
-            fields = {
-                {name="Ryo",      value=string.format("%d / %d (+%d, %.0f/hr)", money(), state.goalMoney, gained, gained*3600/elapsed)},
-                {name="Delivery", value=deliveries.." / "..state.goalDelivery, inline=true},
-                {name="Trash",    value=trashed.." / "..state.goalTrash,       inline=true},
-                {name="Rescue",   value=rescues.." / "..state.goalRescue,      inline=true},
-            }}}})
-        local ok = pcall(req, {Url=state.hookUrl, Method="POST", Headers={["Content-Type"]="application/json"}, Body=body})
-        if not ok then message("Webhook request failed") end
+        local payload = {
+            username = "Fire Village",
+            embeds = {{
+                title = "Fire Village",
+                description = tostring(reason or "update"),
+                color = 10181046,
+                fields = {
+                    {name = "Ryo", value = string.format("%d / %d (+%d, %.0f/hr)", money(), state.goalMoney, gained, gained * 3600 / elapsed), inline = false},
+                    {name = "Delivery", value = tostring(deliveries) .. " / " .. tostring(state.goalDelivery), inline = true},
+                    {name = "Trash", value = tostring(trashed) .. " / " .. tostring(state.goalTrash), inline = true},
+                    {name = "Rescue", value = tostring(rescues) .. " / " .. tostring(state.goalRescue), inline = true},
+                },
+                footer = { text = "Fire Village · " .. os.date("%Y-%m-%d %H:%M:%S") },
+            }},
+        }
+        local body = HttpService:JSONEncode(payload)
+        local ok, res = pcall(req, {
+            Url = url,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = body,
+        })
+        if not ok then
+            message("Webhook request failed: " .. tostring(res))
+            return
+        end
+        local code = type(res) == "table" and (res.StatusCode or res.status_code)
+        if code and code >= 400 then
+            message("Webhook HTTP " .. tostring(code))
+        else
+            message("Webhook sent")
+        end
     end
     local function runOnce(fn)
         if not alive then return end
@@ -921,21 +971,34 @@ local function installVillage()
         end
         task.spawn(function()
             local nextHook = 0
+            local busySince = 0
             while active(token) and state.running do
+                if busy and busySince > 0 and os.clock() - busySince > 45 then
+                    message("Farm was stuck — forcing unlock")
+                    busy = false
+                    busySince = 0
+                end
                 if not busy then
                     busy = true
+                    busySince = os.clock()
                     local ok, err = pcall(function()
+                        local m = mission()
+                        if not m and state.mission and active(token) then
+                            requestBoard()
+                            pause(0.8, token)
+                        end
                         if state.delivery  and active(token) then delivery(token)  end
                         if state.trash     and active(token) then trash(token)     end
                         if state.rescue    and active(token) then rescue(token)    end
                         if state.rescueM1  and active(token) then rescueM1(token)  end
                     end)
                     busy = false
+                    busySince = 0
                     if not ok then message("Farm error: " .. tostring(err)) end
                     updateStats()
                 end
                 if state.webhook and os.clock() >= nextHook then
-                    sendHook("Scheduled update")
+                    pcall(function() sendHook("Scheduled update") end)
                     nextHook = os.clock() + math.max(state.hookInterval, 15)
                 end
                 if not pause(0.5, token) then break end
