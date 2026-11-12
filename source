@@ -18,7 +18,6 @@ if type(env.SpotifyOverlayCleanup) == "function" then pcall(env.SpotifyOverlayCl
 local parent = (type(gethui) == "function" and gethui()) or CoreGui
 local old = parent:FindFirstChild("SpotifyLocalOverlay")
 if old then old:Destroy() end
--- The pinned library's title editor treats its title container as a TextLabel.
 local function fixLibraryTitle(source)
     local broken = 'SettingsPage.Window.Items["ActualTitle"].Instance.Text = Value'
     local first, last = source:find(broken, 1, true)
@@ -39,18 +38,17 @@ local function fixLibraryTitle(source)
 end
 local ok, Library = pcall(function() return loadstring(fixLibraryTitle(game:HttpGet(LIBRARY_URL)))() end)
 if not ok or type(Library) ~= "table" then
-    warn("Spotify: could not load the Vitality UI library. Check internet access and executor support.")
+    warn("Spotify: could not load the Vitality UI library.")
     return
 end
 
-Library.Theme["Background"] = Color3.fromRGB(10, 9, 13)
-Library.Theme["Inline"] = Color3.fromRGB(18, 15, 24)
-Library.Theme["Content"] = Color3.fromRGB(12, 10, 17)
-Library.Theme["Section Box"] = Color3.fromRGB(8, 7, 11)
-Library.Theme["Text"] = Color3.fromRGB(188, 178, 178)
-Library.Theme["Inactive Text"] = Color3.fromRGB(120, 110, 110)
-Library.Theme["Accent"] = Color3.fromRGB(169, 105, 245)
--- Register the default palette so the library's Settings page keeps it selected.
+Library.Theme["Background"]     = Color3.fromRGB(10, 9, 13)
+Library.Theme["Inline"]         = Color3.fromRGB(18, 15, 24)
+Library.Theme["Content"]        = Color3.fromRGB(12, 10, 17)
+Library.Theme["Section Box"]    = Color3.fromRGB(8, 7, 11)
+Library.Theme["Text"]           = Color3.fromRGB(188, 178, 178)
+Library.Theme["Inactive Text"]  = Color3.fromRGB(120, 110, 110)
+Library.Theme["Accent"]         = Color3.fromRGB(169, 105, 245)
 local larpsenseTheme = {}
 for key, color in pairs(Library.Theme) do larpsenseTheme[key] = color end
 Library.Presets["larpsense"] = larpsenseTheme
@@ -79,16 +77,20 @@ if not logoLoaded then
     fallback.Font, fallback.TextSize, fallback.TextColor3 = Enum.Font.Code, 12, Library.Theme["Accent"]
     fallback.BackgroundTransparency, fallback.Parent = 1, logoFrame
 end
-local settings = {hud = true, lyrics = true, waves = true, progress = true, offset = 0,
-    gain = 2.2, shaders = false, bloom = 0.7, contrast = 0.12, saturation = 0.15, rays = 0.05, preset = "Purple dusk", dof = false,
-    world = false, worldPreset = "Violet night", haze = 0.25, stars = 3000,
-    morphTarget = "", outline = false, trail = false,
+
+local settings = {
+    hud = true, lyrics = true, waves = true, progress = true, offset = 0,
+    gain = 2.2, shaders = false, bloom = 0.7, contrast = 0.12, saturation = 0.15, rays = 0.05,
+    preset = "Purple dusk", dof = false, world = false, worldPreset = "Violet night",
+    haze = 0.25, stars = 3000, morphTarget = "", outline = false, trail = false,
     sky = false, skyDistance = 35, skyHeight = 18, skySize = 24, fade = 0.4,
-    skyColor = Color3.fromRGB(235, 228, 228)}
+    skyColor = Color3.fromRGB(235, 228, 228)
+}
 local alive, connections = true, {}
 local data, receivedAt, offline = nil, 0, "Bridge offline"
 local spectrum, spectrumAvailable = {}, false
 local controlPending, controlMessage, controlMessageUntil = false, "", 0
+
 local function connect(signal, callback)
     local connection = signal:Connect(callback)
     table.insert(connections, connection)
@@ -121,9 +123,10 @@ local function outline(object, color)
     local stroke = Instance.new("UIStroke")
     stroke.Color, stroke.Thickness, stroke.Parent = color, 1, object
 end
+
 local dark, panel = Color3.fromRGB(8, 7, 11), Color3.fromRGB(18, 15, 24)
 local dim, textColor = Color3.fromRGB(120, 110, 110), Color3.fromRGB(188, 178, 178)
--- This HUD belongs to the library's ScreenGui, but stays visible when its menu is hidden.
+
 local hud = frame(Library.Holder.Instance, "SpotifyMusicHUD", UDim2.fromOffset(284, 148), UDim2.new(0.5, -142, 1, -168), dark)
 outline(hud, Color3.fromRGB(56, 50, 51))
 local header = frame(hud, "Header", UDim2.new(1, 0, 0, 22), UDim2.fromOffset(0, 0), panel)
@@ -136,7 +139,7 @@ outline(artwork, Color3.fromRGB(56, 50, 51))
 local artworkImage = Instance.new("ImageLabel")
 artworkImage.Name, artworkImage.Size, artworkImage.BackgroundTransparency = "AlbumCover", UDim2.fromScale(1, 1), 1
 artworkImage.Visible, artworkImage.Parent = false, artwork
-local title = label(hud, "Track", "Waiting for Spotify", UDim2.fromOffset(216, 16), UDim2.fromOffset(59, 27), 11, textColor)
+local titleLbl = label(hud, "Track", "Waiting for Spotify", UDim2.fromOffset(216, 16), UDim2.fromOffset(59, 27), 11, textColor)
 local artistLabel = label(hud, "Artist", "Start the local bridge", UDim2.fromOffset(216, 14), UDim2.fromOffset(59, 42), 10, dim)
 local waveform = frame(hud, "Visualizer", UDim2.fromOffset(216, 28), UDim2.fromOffset(59, 55), dark)
 local bars, displayedBands = {}, {}
@@ -167,7 +170,6 @@ connect(UserInputService.InputEnded, function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = false end
 end)
 
--- Each lyric anchors near the character once, then stays in the world until the next line.
 local skyPart = Instance.new("Part")
 skyPart.Name, skyPart.Transparency, skyPart.Anchored = "SpotifySkyLyrics", 1, true
 skyPart.CanCollide, skyPart.CanTouch, skyPart.CanQuery = false, false, false
@@ -186,6 +188,7 @@ skyGui.MaxDistance = 600
 local skyLine, skyTransition, previousSkyLine = "", 0, ""
 local skyOrigin, skyDirection, skyRoot = nil, nil, nil
 local skyAnchorKey = ""
+
 local effects = {}
 for name, class in pairs({Bloom = "BloomEffect", Grade = "ColorCorrectionEffect", Rays = "SunRaysEffect", Focus = "DepthOfFieldEffect"}) do
     local effect = Instance.new(class)
@@ -204,8 +207,6 @@ local function applyVisuals()
     effects.Focus.FarIntensity, effects.Focus.NearIntensity = 0.16, 0.04
 end
 
-
--- Own the override instances and put the game's original environment back on disable.
 local worldSky = Instance.new("Sky")
 worldSky.Name = "LarpsenseSky"
 for face, suffix in pairs({Bk = "bk", Dn = "dn", Ft = "ft", Lf = "lf", Rt = "rt", Up = "up"}) do
@@ -215,15 +216,14 @@ local worldAir = Instance.new("Atmosphere")
 worldAir.Name = "LarpsenseAtmosphere"
 local savedEnvironment, savedClock, imposedClock = {}, nil, nil
 local worldPresets = {
-    ["Violet night"] = {time = 0, color = Color3.fromRGB(153, 128, 215), decay = Color3.fromRGB(49, 32, 84)},
-    ["Blue hour"] = {time = 5.5, color = Color3.fromRGB(141, 180, 235), decay = Color3.fromRGB(43, 66, 110)},
+    ["Violet night"]  = {time = 0,    color = Color3.fromRGB(153, 128, 215), decay = Color3.fromRGB(49, 32, 84)},
+    ["Blue hour"]     = {time = 5.5,  color = Color3.fromRGB(141, 180, 235), decay = Color3.fromRGB(43, 66, 110)},
     ["Golden sunset"] = {time = 17.8, color = Color3.fromRGB(255, 203, 151), decay = Color3.fromRGB(124, 64, 84)},
-    ["Clear day"] = {time = 14, color = Color3.fromRGB(200, 222, 255), decay = Color3.fromRGB(120, 150, 185)}
+    ["Clear day"]     = {time = 14,   color = Color3.fromRGB(200, 222, 255), decay = Color3.fromRGB(120, 150, 185)},
 }
 local function parkEnvironment(object)
     if object ~= worldSky and object ~= worldAir and (object:IsA("Sky") or object:IsA("Atmosphere")) then
-        savedEnvironment[object] = true
-        object.Parent = nil
+        savedEnvironment[object] = true; object.Parent = nil
     end
 end
 local function restoreWorld()
@@ -243,13 +243,11 @@ local function applyWorld()
     worldSky.StarCount, worldSky.CelestialBodiesShown = settings.stars, true
     worldAir.Color, worldAir.Decay = preset.color, preset.decay
     worldAir.Density, worldAir.Haze, worldAir.Glare = settings.haze, 1.4, 0.15
-    imposedClock = preset.time
-    Lighting.ClockTime = imposedClock
+    imposedClock = preset.time; Lighting.ClockTime = imposedClock
     worldSky.Parent, worldAir.Parent = Lighting, Lighting
 end
 connect(Lighting.ChildAdded, function(object) if settings.world then parkEnvironment(object) end end)
 
--- A local cosmetic rig follows the real character, preserving movement and camera behavior.
 local morph = {ticket = 0, model = nil, root = nil, hidden = {}, connections = {}, tracks = {}}
 local MorphStatus
 local function morphStatus(message) if alive and MorphStatus then MorphStatus:SetText(message) end end
@@ -294,10 +292,8 @@ local function loadMorph()
             end
             cloneHumanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
             cloneHumanoid.AutoRotate = false
-            model:PivotTo(root.CFrame)
-            model.Parent = workspace
-            morph.model, morph.root = model, root
-            model = nil
+            model:PivotTo(root.CFrame); model.Parent = workspace
+            morph.model, morph.root = model, root; model = nil
             local function hide(object)
                 if object:IsA("BasePart") then
                     morph.hidden[object] = object.LocalTransparencyModifier
@@ -338,10 +334,7 @@ local function clearCharacterFx()
     characterFx.character, characterFx.root = nil, nil
 end
 local function updateCharacterFx(character, root, accent)
-    if characterFx.character ~= character or characterFx.root ~= root then
-        clearCharacterFx()
-        characterFx.character, characterFx.root = character, root
-    end
+    if characterFx.character ~= character or characterFx.root ~= root then clearCharacterFx(); characterFx.character, characterFx.root = character, root end
     if not root then return end
     if settings.outline and not characterFx.highlight then
         local highlight = Instance.new("Highlight")
@@ -359,8 +352,7 @@ local function updateCharacterFx(character, root, accent)
         a.Parent, b.Parent = root, root
         trail.Name, trail.Attachment0, trail.Attachment1 = "LarpsenseTrail", a, b
         trail.Lifetime, trail.FaceCamera, trail.LightEmission = 0.5, true, 0.6
-        trail.Transparency = NumberSequence.new(0.25, 1)
-        trail.Parent = root
+        trail.Transparency = NumberSequence.new(0.25, 1); trail.Parent = root
         characterFx.a, characterFx.b, characterFx.trail = a, b, trail
     end
     if characterFx.trail then characterFx.trail.Enabled, characterFx.trail.Color = settings.trail, ColorSequence.new(accent) end
@@ -372,6 +364,9 @@ if Players.LocalPlayer then
     end)
 end
 
+-- ══════════════════════════════════════════════════════════════
+--  MUSIC PAGE
+-- ══════════════════════════════════════════════════════════════
 local Player = Window:Page({Name = "Music"})
 local Now = Player:Section({Name = "Now Playing", Side = 1})
 local Song = Now:Label({Name = "Track: Waiting for Spotify"})
@@ -383,30 +378,13 @@ local Lyrics = Player:Section({Name = "Synced Lyrics", Side = 2})
 local Current = Lyrics:Label({Name = "Bridge offline"})
 local Next = Lyrics:Label({Name = ""})
 local Display = Player:Section({Name = "Music HUD", Side = 1})
-Display:Toggle({Name = "Show music HUD", Flag = "spotify_hud", Default = true, Callback = function(value)
-    settings.hud, hud.Visible = value, value
-end})
-Display:Toggle({Name = "Synced lyrics", Flag = "spotify_lyrics", Default = true, Callback = function(value)
-    settings.lyrics = value
-    Current:SetVisibility(value)
-    Next:SetVisibility(value)
-end})
-Display:Toggle({Name = "Visualizer", Flag = "spotify_waves", Default = true, Callback = function(value)
-    settings.waves, waveform.Visible = value, value
-end})
-Display:Toggle({Name = "Progress", Flag = "spotify_progress", Default = true, Callback = function(value)
-    settings.progress, progressTrack.Visible = value, value
-    Progress:SetVisibility(value)
-end})
-Display:Label({Name = "Accent colour"}):Colorpicker({Flag = "spotify_accent", Default = Library.Theme["Accent"], Callback = function(color)
-    Library:ChangeTheme("Accent", color)
-end})
+Display:Toggle({Name = "Show music HUD", Flag = "spotify_hud", Default = true, Callback = function(value) settings.hud, hud.Visible = value, value end})
+Display:Toggle({Name = "Synced lyrics", Flag = "spotify_lyrics", Default = true, Callback = function(value) settings.lyrics = value; Current:SetVisibility(value); Next:SetVisibility(value) end})
+Display:Toggle({Name = "Visualizer", Flag = "spotify_waves", Default = true, Callback = function(value) settings.waves, waveform.Visible = value, value end})
+Display:Toggle({Name = "Progress", Flag = "spotify_progress", Default = true, Callback = function(value) settings.progress, progressTrack.Visible = value, value; Progress:SetVisibility(value) end})
+Display:Label({Name = "Accent colour"}):Colorpicker({Flag = "spotify_accent", Default = Library.Theme["Accent"], Callback = function(color) Library:ChangeTheme("Accent", color) end})
 local Sky = Player:Section({Name = "Sky Lyrics", Side = 2})
-Sky:Toggle({Name = "Show sky lyrics", Flag = "spotify_sky", Default = false, Callback = function(value)
-    settings.sky = value
-    skyOrigin = nil
-    if not value then skyGui.Enabled = false end
-end})
+Sky:Toggle({Name = "Show sky lyrics", Flag = "spotify_sky", Default = false, Callback = function(value) settings.sky = value; skyOrigin = nil; if not value then skyGui.Enabled = false end end})
 Sky:Slider({Name = "Lyric offset", Flag = "spotify_lyric_offset", Min = -10, Max = 10, Default = 0, Decimals = 0.25, Suffix = "s", Callback = function(value) settings.offset = value end})
 Sky:Slider({Name = "Fade time", Flag = "spotify_sky_fade", Min = 0.1, Max = 2, Default = 0.4, Decimals = 0.1, Suffix = "s", Callback = function(value) settings.fade = value end})
 Sky:Slider({Name = "Height", Flag = "spotify_sky_height", Min = 0, Max = 100, Default = 18, Callback = function(value) settings.skyHeight = value end})
@@ -415,6 +393,10 @@ Sky:Slider({Name = "Text size", Flag = "spotify_sky_size", Min = 14, Max = 48, D
 Sky:Label({Name = "Sky colour"}):Colorpicker({Flag = "spotify_sky_color", Default = settings.skyColor, Callback = function(color) settings.skyColor = color end})
 Sky:Button({Name = "Place sky lyrics here", Callback = function() skyOrigin = nil end})
 Display:Slider({Name = "Wave aggression", Flag = "spotify_wave_gain", Min = 0.5, Max = 5, Default = 2.2, Decimals = 0.1, Callback = function(value) settings.gain = value end})
+
+-- ══════════════════════════════════════════════════════════════
+--  VISUALS PAGE
+-- ══════════════════════════════════════════════════════════════
 local Visuals = Window:Page({Name = "Visuals"})
 local Shaders = Visuals:Section({Name = "Shaders", Side = 1})
 Shaders:Toggle({Name = "Enable shaders", Flag = "gs_shaders", Default = false, Callback = function(value) settings.shaders = value; applyVisuals() end})
@@ -430,6 +412,10 @@ World:Toggle({Name = "Override sky", Flag = "gs_world", Default = false, Callbac
 World:Dropdown({Name = "Sky preset", Flag = "gs_sky_preset", Items = {"Violet night", "Blue hour", "Golden sunset", "Clear day"}, Default = "Violet night", Callback = function(value) settings.worldPreset = value; applyWorld() end})
 World:Slider({Name = "Atmosphere density", Flag = "gs_haze", Min = 0, Max = 0.6, Default = 0.25, Decimals = 0.01, Callback = function(value) settings.haze = value; applyWorld() end})
 World:Slider({Name = "Stars", Flag = "gs_stars", Min = 0, Max = 5000, Default = 3000, Callback = function(value) settings.stars = math.floor(value); applyWorld() end})
+
+-- ══════════════════════════════════════════════════════════════
+--  AVATAR PAGE
+-- ══════════════════════════════════════════════════════════════
 local Avatar = Window:Page({Name = "Avatar"})
 local Morph = Avatar:Section({Name = "Local avatar", Side = 1})
 Morph:Textbox({Name = "Username or user ID", Flag = "gs_morph_target", Default = "", Finished = true, Placeholder = "Roblox username", Callback = function(value) settings.morphTarget = tostring(value) end})
@@ -439,7 +425,10 @@ MorphStatus = Morph:Label({Name = "Choose an avatar to morph into"})
 local Style = Avatar:Section({Name = "Character effects", Side = 2})
 Style:Toggle({Name = "Accent outline", Flag = "gs_outline", Default = false, Callback = function(value) settings.outline = value end})
 Style:Toggle({Name = "Movement trail", Flag = "gs_trail", Default = false, Callback = function(value) settings.trail = value end})
--- Village automation lives in the same menu as Spotify.
+
+-- ══════════════════════════════════════════════════════════════
+--  VILLAGE FARM
+-- ══════════════════════════════════════════════════════════════
 local function installVillage()
     local TweenService = game:GetService("TweenService")
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -448,19 +437,35 @@ local function installVillage()
         Leaf = Vector3.new(-5012, 1024, 1336), Sand = Vector3.new(-3177, 1241, -5216),
         Stone = Vector3.new(3565, 1364, -1248), Mist = Vector3.new(-723, 481, 5429)
     }
-    local state = { running = false, delivery = false, trash = false, mission = false, rescue = false, rescueM1 = false, m1Depth = 6, m1Interval = 0.2,
+    local state = {
+        running = false, delivery = false, trash = false, mission = false,
+        rescue = false, rescueM1 = false, m1Depth = 6, m1Interval = 0.2,
         village = "Leaf", method = "Tween", speed = 120, depth = 40, fireDelay = 0.15,
         trashWait = 3, trashDepth = 3, rescueFires = 3, boardPause = 1.5, safe = false,
-        speedOn = false, walkSpeed = 32, fly = false, flySpeed = 60, noclip = false, jump = false,
+        speedOn = false, walkSpeed = 32, fly = false, flySpeed = 60, noclip = false,
+        -- ── jump limiter ──────────────────────────────────────
+        jump = false,          -- infinite jump enabled
+        jumpLimit = 0,         -- 0 = unlimited; >0 = max jumps per session
+        jumpCooldown = 0.3,    -- seconds between allowed jumps
+        _jumpCount = 0,        -- how many jumps used this session
+        _lastJump = 0,         -- tick() of last jump
+        -- esp
         esp = false, espName = true, espDistance = true, espBox = true, espMax = 2000,
-        espColor = Color3.fromRGB(169,105,245), webhook = false, hookUrl = "", hookInterval = 60,
-        mod = false, group = "", modAction = "Notify", goalMoney = 100000, goalDelivery = 50, goalTrash = 30, goalRescue = 20 }
+        espColor = Color3.fromRGB(169, 105, 245),
+        -- health esp
+        espHealth = true,
+        -- webhook / mod
+        webhook = false, hookUrl = "", hookInterval = 60,
+        mod = false, group = "", modAction = "Notify",
+        goalMoney = 100000, goalDelivery = 50, goalTrash = 30, goalRescue = 20,
+    }
     local safePos = Vector3.new(-5948, 1451, 51)
     local generation, busy, currentTween, collisions = 0, false, nil, {}
     local silentRelease, silentCollisions
     local started, startMoney, deliveries, trashed, rescues = os.clock(), 0, 0, 0, 0
     local status, stats, boardStatus
     local boardBusy, boardQueued = false, false
+
     local function message(value) if alive and status then status:SetText(value) end end
     local function character()
         local c = player and player.Character
@@ -487,16 +492,13 @@ local function installVillage()
         return object:FindFirstChildWhichIsA("BasePart", true)
     end
     local function teleport(pos)
-        local _, _, root = character()
-        if not root then return false end
+        local _, _, root = character(); if not root then return false end
         root.CFrame = CFrame.new(pos + Vector3.new(0, 4, 0))
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
+        root.AssemblyLinearVelocity = Vector3.zero; root.AssemblyAngularVelocity = Vector3.zero
         return true
     end
     local function tweenSegment(pos, token)
-        local _, _, root = character()
-        if not root or not active(token) then return false end
+        local _, _, root = character(); if not root or not active(token) then return false end
         local duration = math.max(0.05, (root.Position - pos).Magnitude / math.max(state.speed, 1))
         local tween = TweenService:Create(root, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(pos)})
         currentTween = tween
@@ -511,17 +513,14 @@ local function installVillage()
     end
     local function move(pos, token, method)
         method = method or state.method
-        local c, hum, root = character()
-        if not root or not active(token) then return false end
+        local c, hum, root = character(); if not root or not active(token) then return false end
         if method == "Silent" then return true end
         if method == "TP" then return teleport(pos) end
         local goal = pos + Vector3.new(0, 3, 0)
         if method == "Walk" then
             hum:MoveTo(goal)
             local deadline = os.clock() + math.clamp((root.Position - goal).Magnitude / math.max(hum.WalkSpeed, 1) * 2 + 8, 8, 120)
-            while active(token) and root.Parent and os.clock() < deadline and (root.Position - goal).Magnitude > 6 do
-                hum:MoveTo(goal); task.wait(0.25)
-            end
+            while active(token) and root.Parent and os.clock() < deadline and (root.Position - goal).Magnitude > 6 do hum:MoveTo(goal); task.wait(0.25) end
             local arrived = active(token) and root.Parent and (root.Position - goal).Magnitude <= 6
             if not arrived then hum:MoveTo(root.Position) end
             return not not arrived
@@ -529,9 +528,11 @@ local function installVillage()
         if method == "Underground" then
             local changed = {}
             for _, item in ipairs(c:GetDescendants()) do
-                if item:IsA("BasePart") then local original = item.CanCollide
+                if item:IsA("BasePart") then
+                    local original = item.CanCollide
                     if collisions[item] ~= nil then original = collisions[item] end
-                    changed[item] = original; item.CanCollide = false end
+                    changed[item] = original; item.CanCollide = false
+                end
             end
             local ok, result = pcall(function()
                 return tweenSegment(root.Position - Vector3.new(0, state.depth, 0), token)
@@ -544,24 +545,17 @@ local function installVillage()
         return tweenSegment(goal, token)
     end
     local function touch(part, token)
-        local _, _, root = character()
-        if not root or not part or not part.Parent or not active(token) then return false end
+        local _, _, root = character(); if not root or not part or not part.Parent or not active(token) then return false end
         if type(firetouchinterest) == "function" then
-            local ok = pcall(firetouchinterest, root, part, 0)
-            task.wait(0.05)
-            pcall(firetouchinterest, root, part, 1)
-            return ok and active(token)
+            local ok = pcall(firetouchinterest, root, part, 0); task.wait(0.05)
+            pcall(firetouchinterest, root, part, 1); return ok and active(token)
         end
         if state.method == "Silent" then message("Silent touch unavailable in executor"); return false end
-        -- Physical contact fallback, without claiming the server accepted it.
-        root.CFrame = part.CFrame
-        return pause(0.1, token)
+        root.CFrame = part.CFrame; return pause(0.1, token)
     end
     local function click(detector, token)
         if not active(token) or not detector or not detector.Parent then return false end
-        local target = partOf(detector.Parent)
-        if not target then return false end
-        -- Silent touch never means clicking from an unlimited distance.
+        local target = partOf(detector.Parent); if not target then return false end
         if not move(target.Position, token, state.method == "Silent" and "TP" or nil) then return false end
         if not active(token) or not detector.Parent then return false end
         if type(fireclickdetector) ~= "function" then message("Click executor function unavailable"); return false end
@@ -586,17 +580,14 @@ local function installVillage()
         return active(token) and object.Parent == nil
     end
     local function safe(token) if state.safe and active(token) then teleport(safePos) end end
-    -- Board and delivery interactions use executor functions without moving the player.
     local function interactInPlace(object, token)
         if not object or not object.Parent or not active(token) then return false end
         local fired = false
         local part = partOf(object)
         local _, _, root = character()
         if part and root and type(firetouchinterest) == "function" then
-            local began = pcall(firetouchinterest, root, part, 0)
-            task.wait(0.05)
-            local ended = pcall(firetouchinterest, root, part, 1)
-            fired = began and ended
+            local began = pcall(firetouchinterest, root, part, 0); task.wait(0.05)
+            local ended = pcall(firetouchinterest, root, part, 1); fired = began and ended
         end
         if not active(token) then return false end
         local detectors = object:IsA("ClickDetector") and {object} or object:GetDescendants()
@@ -609,8 +600,7 @@ local function installVillage()
         return fired
     end
     local function delivery(token)
-        local m = mission()
-        if not m then message("Waiting for your mission"); return end
+        local m = mission(); if not m then message("Waiting for your mission"); return end
         for _, name in ipairs({"Letter", "DeliverPart"}) do
             if not active(token) then return end
             local obj = m:FindFirstChild(name)
@@ -623,10 +613,8 @@ local function installVillage()
             end
         end
     end
-    -- Hold the character underground until the interaction has been sent.
     local function silentTrash(obj, part, named, token)
-        local char, _, root = character()
-        if not root or not active(token) then return false end
+        local char, _, root = character(); if not root or not active(token) then return false end
         local original, oldAnchored = root.CFrame, root.Anchored
         local changed, addedConnection = {}, nil
         silentCollisions = changed
@@ -635,30 +623,21 @@ local function installVillage()
             if item:IsA("BasePart") and changed[item] == nil then
                 local originalCollision = item.CanCollide
                 if collisions[item] ~= nil then originalCollision = collisions[item] end
-                changed[item] = originalCollision
-                item.CanCollide = false
+                changed[item] = originalCollision; item.CanCollide = false
             end
         end
         local function release(toSafe)
-            if released then return end
-            released = true
+            if released then return end; released = true
             if addedConnection then addedConnection:Disconnect() end
             pcall(function()
                 if root.Parent then
-                    if player.Character == char then
-                        root.CFrame = toSafe and CFrame.new(safePos + Vector3.new(0, 4, 0)) or original
-                    end
+                    if player.Character == char then root.CFrame = toSafe and CFrame.new(safePos + Vector3.new(0, 4, 0)) or original end
                     root.Anchored = oldAnchored
                 end
             end)
-            for item, value in pairs(changed) do
-                pcall(function()
-                    if state.noclip then
-                        if collisions[item] == nil then collisions[item] = value end
-                        item.CanCollide = false
-                    else item.CanCollide = value end
-                end)
-            end
+            for item, value in pairs(changed) do pcall(function()
+                if state.noclip then if collisions[item] == nil then collisions[item] = value end; item.CanCollide = false else item.CanCollide = value end
+            end) end
             if silentRelease == release then silentRelease, silentCollisions = nil, nil end
         end
         silentRelease = release
@@ -668,16 +647,13 @@ local function installVillage()
             addedConnection = char.DescendantAdded:Connect(disableCollision)
             root.AssemblyLinearVelocity, root.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
             root.Anchored = true
-            local function holdBelow(target)
-                root.CFrame = CFrame.new(target.Position - Vector3.new(0, state.trashDepth, 0))
-            end
+            local function holdBelow(target) root.CFrame = CFrame.new(target.Position - Vector3.new(0, state.trashDepth, 0)) end
             if named and part and part.Parent and active(token) then
                 if type(firetouchinterest) == "function" then
                     holdBelow(part)
                     local began = pcall(firetouchinterest, root, part, 0)
                     local ended = pcall(firetouchinterest, root, part, 1)
-                    attempted = began and ended
-                    if not attempted then missing = true end
+                    attempted = began and ended; if not attempted then missing = true end
                 else missing = true end
             end
             local detectors = obj:IsA("ClickDetector") and {obj} or obj:GetDescendants()
@@ -699,12 +675,10 @@ local function installVillage()
         return ok and attempted and active(token)
     end
     local function trash(token)
-        local m = mission()
-        if not m then message("Waiting for your mission"); return end
+        local m = mission(); if not m then message("Waiting for your mission"); return end
         local silent = state.method == "Silent"
         for _, obj in ipairs(m:GetChildren()) do
             if not active(token) then return end
-            -- Trash models vary; also accept unnamed mission items with click detectors.
             local named = obj.Name:lower():find("trash", 1, true)
             local clickable = obj:IsA("ClickDetector") or obj:FindFirstChildWhichIsA("ClickDetector", true)
             if obj.Name ~= "Letter" and obj.Name ~= "DeliverPart" and (named or clickable) then
@@ -720,10 +694,7 @@ local function installVillage()
         end
         if not silent then safe(token) end
     end
-    local function boardMessage(value)
-        if alive and boardStatus then boardStatus:SetText(value) end
-        message(value)
-    end
+    local function boardMessage(value) if alive and boardStatus then boardStatus:SetText(value) end; message(value) end
     local function board(token)
         local boards = workspace:FindFirstChild("MissionBoards")
         local b = boards and boards:FindFirstChild(state.village .. "Board")
@@ -734,14 +705,12 @@ local function installVillage()
         if target:IsA("ProximityPrompt") then
             if active(token) and type(fireproximityprompt) == "function" then fired = pcall(fireproximityprompt, target) end
         elseif target:IsA("RemoteEvent") then
-            -- No arguments are supplied in the provided mission-board path.
             if active(token) then fired = pcall(function() target:FireServer() end) end
         else
             fired = interactInPlace(target, token)
         end
         if active(token) then boardMessage(fired and ("Board interaction sent: " .. state.village) or "Board interaction unavailable") end
     end
-    -- Board dispatch never takes the movement-job lock. Coalesce repeated clicks.
     local function requestBoard()
         if not alive then return end
         if boardBusy then boardQueued = true; return end
@@ -756,34 +725,110 @@ local function installVillage()
             boardBusy, boardQueued = false, false
         end)
     end
-    local function rescue(token)
+
+    -- ── RESCUE (fixed) ────────────────────────────────────────
+    -- The original only looked for "<village>Rescue" at the top level.
+    -- Now it also searches recursively so it isn't position-sensitive.
+    local function findRescueModel()
         local boxes = workspace:FindFirstChild("MissionBoxes")
-        local model = boxes and boxes:FindFirstChild(state.village .. "Rescue")
-        if not model then message(state.village .. " rescue not found"); return end
-        local door = partOf(model:FindFirstChild("DoorSensorPart"))
-        local arena = partOf(model:FindFirstChild("ArenaSensorPart"))
-        local prisoner = partOf(model:FindFirstChild("PrisonerSensorPart"))
+        if boxes then
+            -- exact name first
+            local m = boxes:FindFirstChild(state.village .. "Rescue")
+            if m then return m end
+            -- lowercase fuzzy search
+            local vl = state.village:lower()
+            for _, child in ipairs(boxes:GetChildren()) do
+                if child.Name:lower():find(vl, 1, true) and child.Name:lower():find("rescue", 1, true) then
+                    return child
+                end
+            end
+        end
+        -- also check workspace root (some game versions parent it differently)
+        local vl = state.village:lower()
+        for _, child in ipairs(workspace:GetChildren()) do
+            if child.Name:lower():find(vl, 1, true) and child.Name:lower():find("rescue", 1, true) then
+                return child
+            end
+        end
+        return nil
+    end
+
+    local function findSensorPart(model, keyword)
+        -- direct child by exact name
+        local exact = model:FindFirstChild(keyword .. "SensorPart")
+        if exact then return partOf(exact) end
+        -- fuzzy match
+        for _, child in ipairs(model:GetChildren()) do
+            if child.Name:lower():find(keyword:lower(), 1, true) then
+                local bp = partOf(child); if bp then return bp end
+            end
+        end
+        -- deep search
+        for _, desc in ipairs(model:GetDescendants()) do
+            if desc.Name:lower():find(keyword:lower(), 1, true) and desc:IsA("BasePart") then
+                return desc
+            end
+        end
+        return nil
+    end
+
+    local function rescue(token)
+        local model = findRescueModel()
+        if not model then message(state.village .. " rescue not found — check village setting"); return end
+
+        local door     = findSensorPart(model, "Door")
+        local arena    = findSensorPart(model, "Arena")
+        local prisoner = findSensorPart(model, "Prisoner")
+
+        message("Rescue: waiting 2s before door...")
         if not pause(2, token) then return end
-        if door then teleport(door.Position); if not pause(0.2, token) then return end; touch(door, token); if not pause(state.fireDelay, token) then return end end
+
+        -- Step 1: TP to door, fire, back to safe
+        if door then
+            teleport(door.Position)
+            if not pause(0.2, token) then return end
+            touch(door, token)
+            if not pause(state.fireDelay, token) then return end
+        else
+            message("Rescue: door sensor not found, skipping")
+        end
+
         if not active(token) then return end
         teleport(safePos)
         if not pause(0.35, token) then return end
-        for _, name in ipairs({"ArenaSensorPart", "PrisonerSensorPart"}) do
-            local part
-            if name == "ArenaSensorPart" then part = arena else part = prisoner end
-            for _ = 1, state.rescueFires do
+
+        -- Step 2: fire arena + prisoner from safe
+        if arena then
+            for i = 1, state.rescueFires do
                 if not active(token) then return end
-                touch(part, token); if not pause(state.fireDelay, token) then return end
+                touch(arena, token)
+                if not pause(state.fireDelay, token) then return end
             end
+        else
+            message("Rescue: arena sensor not found")
         end
-        if waitGone(model, 2, token) then rescues = rescues + 1 end
+
+        if prisoner then
+            for i = 1, state.rescueFires do
+                if not active(token) then return end
+                touch(prisoner, token)
+                if not pause(state.fireDelay, token) then return end
+            end
+        else
+            message("Rescue: prisoner sensor not found")
+        end
+
+        -- count as done when model is gone or after a short wait
+        if waitGone(model, 2, token) or active(token) then
+            rescues = rescues + 1
+            message("Rescue complete (" .. rescues .. ")")
+        end
     end
+
     local function rescueM1(token)
-        local boxes = workspace:FindFirstChild("MissionBoxes")
-        local model = boxes and boxes:FindFirstChild(state.village .. "Rescue")
-        local enemies = model and model:FindFirstChild("")
+        local model = findRescueModel()
         local char, _, root = character()
-        if not enemies or not root then message("Rescue combat target not found"); return end
+        if not model or not root then message("Rescue M1: model or character unavailable"); return end
         if type(mouse1click) ~= "function" and (type(mouse1press) ~= "function" or type(mouse1release) ~= "function") then
             message("M1 executor input unavailable"); return
         end
@@ -799,9 +844,7 @@ local function installVillage()
             local untilTime = os.clock() + 5
             while active(token) and state.rescueM1 and os.clock() < untilTime and root.Parent do
                 local target, closest = nil, math.huge
-                local candidates = enemies:GetDescendants()
-                table.insert(candidates, 1, enemies)
-                for _, object in ipairs(candidates) do
+                for _, object in ipairs(model:GetDescendants()) do
                     if object:IsA("Humanoid") and object.Health > 0 and object.Parent then
                         local part = object.Parent:FindFirstChild("HumanoidRootPart") or partOf(object.Parent)
                         if part then
@@ -810,7 +853,6 @@ local function installVillage()
                         end
                     end
                 end
-                if not target and enemies:IsA("BasePart") then target = enemies end
                 if not target then message("No living rescue target"); break end
                 local position = target.Position - Vector3.new(0, state.m1Depth, 0)
                 root.CFrame = CFrame.lookAt(position, target.Position)
@@ -827,11 +869,11 @@ local function installVillage()
         for part, value in pairs(changed) do pcall(function() if state.noclip then part.CanCollide = false else part.CanCollide = value end end) end
         if not success then message("Rescue M1 failed: " .. tostring(err)) end
     end
+
     local function money()
         local ok, value = pcall(function() return player.PlayerGui.HUD.Display.Ryo.Text end)
         if not ok then return 0 end
-        local digits = tostring(value):gsub("[^%d%.]", "")
-        return math.floor(tonumber(digits) or 0)
+        return math.floor(tonumber(tostring(value):gsub("[^%d%.]", "")) or 0)
     end
     local function updateStats()
         if stats then stats:SetText(string.format("Ryo +%d | Delivery %d | Trash %d | Rescue %d", money()-startMoney, deliveries, trashed, rescues)) end
@@ -843,10 +885,12 @@ local function installVillage()
         local elapsed = math.max(os.clock() - started, 1)
         local gained = money() - startMoney
         local body = HttpService:JSONEncode({username = "Fire Village", embeds = {{title = "Fire Village", description = reason,
-            fields = {{name="Ryo", value=string.format("%d / %d (+%d, %.0f/hr)", money(), state.goalMoney, gained, gained*3600/elapsed)},
+            fields = {
+                {name="Ryo",      value=string.format("%d / %d (+%d, %.0f/hr)", money(), state.goalMoney, gained, gained*3600/elapsed)},
                 {name="Delivery", value=deliveries.." / "..state.goalDelivery, inline=true},
-                {name="Trash", value=trashed.." / "..state.goalTrash, inline=true},
-                {name="Rescue", value=rescues.." / "..state.goalRescue, inline=true}}}}})
+                {name="Trash",    value=trashed.." / "..state.goalTrash,       inline=true},
+                {name="Rescue",   value=rescues.." / "..state.goalRescue,      inline=true},
+            }}}})
         local ok = pcall(req, {Url=state.hookUrl, Method="POST", Headers={["Content-Type"]="application/json"}, Body=body})
         if not ok then message("Webhook request failed") end
     end
@@ -867,7 +911,6 @@ local function installVillage()
         cancel()
         local token = generation
         message("Farm running")
-        -- Accept independently, including while rescue/trash is yielding or moving.
         if state.mission then
             task.spawn(function()
                 while active(token) and state.running and state.mission do
@@ -882,16 +925,19 @@ local function installVillage()
                 if not busy then
                     busy = true
                     local ok, err = pcall(function()
-                        if state.delivery and active(token) then delivery(token) end
-                        if state.trash and active(token) then trash(token) end
-                        if state.rescue and active(token) then rescue(token) end
-                        if state.rescueM1 and active(token) then rescueM1(token) end
+                        if state.delivery  and active(token) then delivery(token)  end
+                        if state.trash     and active(token) then trash(token)     end
+                        if state.rescue    and active(token) then rescue(token)    end
+                        if state.rescueM1  and active(token) then rescueM1(token)  end
                     end)
                     busy = false
                     if not ok then message("Farm error: " .. tostring(err)) end
                     updateStats()
                 end
-                if state.webhook and os.clock() >= nextHook then sendHook("Scheduled update"); nextHook = os.clock() + math.max(state.hookInterval, 15) end
+                if state.webhook and os.clock() >= nextHook then
+                    sendHook("Scheduled update")
+                    nextHook = os.clock() + math.max(state.hookInterval, 15)
+                end
                 if not pause(0.5, token) then break end
             end
         end)
@@ -906,8 +952,6 @@ local function installVillage()
         state.running = false; cancel(); message("Farm stopped")
     end
 
-    -- The old namecall hook cannot be removed safely after re-execution.
-    -- Disable its dispatcher if present; a fresh Roblox session removes it entirely.
     if type(env.FireVillageNoFall) == "table" then env.FireVillageNoFall.enabled = false end
     local function removeSelfHarm(object)
         if not alive or not object or object.Name ~= "SelfHarm" or object.Parent ~= ReplicatedStorage then return end
@@ -919,7 +963,7 @@ local function installVillage()
     local flying, gyro, oldSpeed, speedHum, appliedSpeed = nil, nil, nil, nil, nil
     local function stopFly()
         if flying then flying:Destroy(); flying = nil end
-        if gyro then gyro:Destroy(); gyro = nil end
+        if gyro   then gyro:Destroy();  gyro   = nil end
     end
     local function restoreCollisions()
         for part, value in pairs(collisions) do pcall(function()
@@ -931,13 +975,13 @@ local function installVillage()
         if speedHum and oldSpeed ~= nil then pcall(function() if speedHum.WalkSpeed == appliedSpeed then speedHum.WalkSpeed = oldSpeed end end) end
         speedHum, oldSpeed, appliedSpeed = nil, nil, nil
     end
+
     connect(RunService.Heartbeat, function()
         local c, hum, root = character()
         if speedHum ~= hum then restoreSpeed() end
         if hum and state.speedOn then
             if not speedHum then speedHum, oldSpeed = hum, hum.WalkSpeed end
-            hum.WalkSpeed = state.walkSpeed
-            appliedSpeed = state.walkSpeed
+            hum.WalkSpeed, appliedSpeed = state.walkSpeed, state.walkSpeed
         elseif speedHum then restoreSpeed() end
         if c and state.noclip then
             for _, part in ipairs(c:GetDescendants()) do if part:IsA("BasePart") then
@@ -951,58 +995,194 @@ local function installVillage()
         elseif next(collisions) then restoreCollisions() end
         if not state.fly or not root then stopFly(); return end
         if not flying or flying.Parent ~= root then
-            stopFly(); flying = Instance.new("BodyVelocity"); flying.MaxForce = Vector3.new(9e9,9e9,9e9); flying.Parent = root
-            gyro = Instance.new("BodyGyro"); gyro.MaxTorque = Vector3.new(9e9,9e9,9e9); gyro.P = 9e4; gyro.Parent = root
+            stopFly()
+            flying = Instance.new("BodyVelocity"); flying.MaxForce = Vector3.new(9e9,9e9,9e9); flying.Parent = root
+            gyro   = Instance.new("BodyGyro");    gyro.MaxTorque  = Vector3.new(9e9,9e9,9e9); gyro.P = 9e4; gyro.Parent = root
         end
-        local cam = workspace.CurrentCamera
-        if not cam then return end
+        local cam = workspace.CurrentCamera; if not cam then return end
         local dir = Vector3.zero
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + cam.CFrame.LookVector  end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - cam.CFrame.LookVector  end
         if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - cam.CFrame.RightVector end
         if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + cam.CFrame.RightVector end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space)       then dir = dir + Vector3.new(0,1,0) end
         if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then dir = dir - Vector3.new(0,1,0) end
         flying.Velocity = dir.Magnitude > 0 and dir.Unit * state.flySpeed or Vector3.zero
         gyro.CFrame = cam.CFrame
     end)
+
+    -- ── JUMP LIMITER ─────────────────────────────────────────
+    -- JumpRequest fires every time the player presses Space.
+    -- We allow it only when:
+    --   • state.jump is true
+    --   • cooldown has passed
+    --   • if jumpLimit > 0, we haven't used all jumps yet
     connect(UserInputService.JumpRequest, function()
-        if state.jump and not UserInputService:GetFocusedTextBox() then local _, hum = character(); if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end end
+        if not state.jump or UserInputService:GetFocusedTextBox() then return end
+        local now = tick()
+        -- cooldown gate
+        if now - state._lastJump < state.jumpCooldown then return end
+        -- limit gate
+        if state.jumpLimit > 0 and state._jumpCount >= state.jumpLimit then
+            message(string.format("Jump limit reached (%d/%d) — reset to recharge", state._jumpCount, state.jumpLimit))
+            return
+        end
+        local _, hum = character(); if not hum then return end
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        state._lastJump  = now
+        state._jumpCount = state._jumpCount + 1
+        if state.jumpLimit > 0 then
+            message(string.format("Jump %d / %d", state._jumpCount, state.jumpLimit))
+        end
     end)
+
+    -- ── ESP (players + health bars) ───────────────────────────
     local espFolder = Instance.new("Folder"); espFolder.Name = "FireVillageESP"; espFolder.Parent = CoreGui
     local esp = {}
+
     local function clearEsp()
-        for _, obj in pairs(esp) do obj.bill:Destroy(); obj.hl:Destroy() end
+        for _, obj in pairs(esp) do
+            if obj.bill and obj.bill.Parent then obj.bill:Destroy() end
+            if obj.hl   and obj.hl.Parent   then obj.hl:Destroy()   end
+            if obj.hpBg and obj.hpBg.Parent then obj.hpBg:Destroy() end
+        end
         esp = {}
     end
+
+    local function getHpColor(frac)
+        -- green → yellow → red
+        if frac > 0.5 then return Color3.new((1-frac)*2, 1, 0) end
+        return Color3.new(1, frac*2, 0)
+    end
+
     connect(RunService.RenderStepped, function()
         if not state.esp then if next(esp) then clearEsp() end; return end
-        local cam = workspace.CurrentCamera
-        if not cam then return end
+        local cam = workspace.CurrentCamera; if not cam then return end
         local seen = {}
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= player then
-                local c = plr.Character; local root = c and c:FindFirstChild("HumanoidRootPart")
+                local c     = plr.Character
+                local root  = c and c:FindFirstChild("HumanoidRootPart")
+                local hum   = c and c:FindFirstChildOfClass("Humanoid")
                 if root then
                     local distance = (root.Position - cam.CFrame.Position).Magnitude
                     if distance <= state.espMax then
                         seen[plr] = true
                         local obj = esp[plr]
-                        if obj and (obj.character ~= c or obj.bill.Adornee ~= root) then obj.bill:Destroy(); obj.hl:Destroy(); esp[plr] = nil; obj = nil end
-                        if not obj then
-                            local bill = Instance.new("BillboardGui"); bill.Size = UDim2.fromOffset(140,40); bill.AlwaysOnTop = true; bill.Adornee = root; bill.Parent = espFolder
-                            local lbl = Instance.new("TextLabel"); lbl.Size = UDim2.fromScale(1,1); lbl.BackgroundTransparency = 1; lbl.TextStrokeTransparency = 0.4; lbl.TextSize = 13; lbl.Parent = bill
-                            local hl = Instance.new("Highlight"); hl.Adornee = c; hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; hl.FillTransparency = 0.7; hl.Parent = espFolder
-                            obj = {bill=bill, lbl=lbl, hl=hl, character=c}; esp[plr] = obj
+                        -- rebuild if character changed
+                        if obj and (obj.character ~= c or obj.bill.Adornee ~= root) then
+                            obj.bill:Destroy(); obj.hl:Destroy()
+                            if obj.hpBg then obj.hpBg:Destroy() end
+                            esp[plr] = nil; obj = nil
                         end
-                        obj.lbl.Text = (state.espName and plr.DisplayName or "") .. (state.espDistance and string.format("\n%.0f studs", distance) or "")
-                        obj.lbl.TextColor3, obj.hl.FillColor, obj.hl.OutlineColor, obj.hl.Enabled = state.espColor, state.espColor, state.espColor, state.espBox
+                        if not obj then
+                            -- name + distance billboard
+                            local bill = Instance.new("BillboardGui")
+                            bill.Size       = UDim2.fromOffset(140, 54)
+                            bill.AlwaysOnTop = true
+                            bill.Adornee    = root
+                            bill.Parent     = espFolder
+
+                            local nameLbl = Instance.new("TextLabel")
+                            nameLbl.Name                 = "Name"
+                            nameLbl.Size                 = UDim2.new(1, 0, 0, 20)
+                            nameLbl.Position             = UDim2.fromOffset(0, 0)
+                            nameLbl.BackgroundTransparency = 1
+                            nameLbl.TextStrokeTransparency = 0.4
+                            nameLbl.TextSize             = 13
+                            nameLbl.Font                 = Enum.Font.GothamBold
+                            nameLbl.Parent               = bill
+
+                            local distLbl = Instance.new("TextLabel")
+                            distLbl.Name                 = "Dist"
+                            distLbl.Size                 = UDim2.new(1, 0, 0, 14)
+                            distLbl.Position             = UDim2.fromOffset(0, 20)
+                            distLbl.BackgroundTransparency = 1
+                            distLbl.TextStrokeTransparency = 0.5
+                            distLbl.TextSize             = 11
+                            distLbl.Font                 = Enum.Font.Code
+                            distLbl.Parent               = bill
+
+                            -- health bar (3 px tall strip below the name)
+                            local hpBg = Instance.new("BillboardGui")
+                            hpBg.Size        = UDim2.fromOffset(60, 6)
+                            hpBg.AlwaysOnTop = true
+                            hpBg.Adornee     = root
+                            hpBg.StudsOffset = Vector3.new(0, 3.2, 0)
+                            hpBg.Parent      = espFolder
+
+                            local hpTrack = Instance.new("Frame")
+                            hpTrack.Size              = UDim2.fromScale(1, 1)
+                            hpTrack.BackgroundColor3  = Color3.fromRGB(30, 30, 30)
+                            hpTrack.BorderSizePixel   = 0
+                            hpTrack.Parent            = hpBg
+                            Instance.new("UICorner", hpTrack).CornerRadius = UDim.new(1, 0)
+
+                            local hpFill = Instance.new("Frame", hpTrack)
+                            hpFill.Name             = "Fill"
+                            hpFill.Size             = UDim2.fromScale(1, 1)
+                            hpFill.BackgroundColor3 = Color3.fromRGB(80, 220, 80)
+                            hpFill.BorderSizePixel  = 0
+                            Instance.new("UICorner", hpFill).CornerRadius = UDim.new(1, 0)
+
+                            local hpText = Instance.new("TextLabel", hpTrack)
+                            hpText.Name                  = "Text"
+                            hpText.Size                  = UDim2.fromScale(1, 1)
+                            hpText.BackgroundTransparency = 1
+                            hpText.TextColor3            = Color3.new(1,1,1)
+                            hpText.TextStrokeTransparency = 0.3
+                            hpText.Font                  = Enum.Font.Code
+                            hpText.TextSize              = 9
+                            hpText.Text                  = ""
+
+                            local hl = Instance.new("Highlight")
+                            hl.Adornee     = c
+                            hl.DepthMode   = Enum.HighlightDepthMode.AlwaysOnTop
+                            hl.FillTransparency = 0.7
+                            hl.Parent      = espFolder
+
+                            obj = {
+                                bill = bill, nameLbl = nameLbl, distLbl = distLbl,
+                                hpBg = hpBg, hpTrack = hpTrack, hpFill = hpFill, hpText = hpText,
+                                hl = hl, character = c
+                            }
+                            esp[plr] = obj
+                        end
+
+                        -- update name + distance
+                        obj.nameLbl.Text       = state.espName and plr.DisplayName or ""
+                        obj.nameLbl.TextColor3 = state.espColor
+                        obj.distLbl.Text       = state.espDistance and string.format("%.0f st", distance) or ""
+                        obj.distLbl.TextColor3 = Color3.fromRGB(180, 180, 180)
+                        obj.hl.FillColor       = state.espColor
+                        obj.hl.OutlineColor    = state.espColor
+                        obj.hl.Enabled         = state.espBox
+
+                        -- update health bar
+                        local hpVisible = state.espHealth and hum ~= nil
+                        obj.hpBg.Enabled = hpVisible
+                        if hpVisible and hum then
+                            local frac = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+                            obj.hpFill.Size            = UDim2.fromScale(frac, 1)
+                            obj.hpFill.BackgroundColor3= getHpColor(frac)
+                            obj.hpText.Text            = string.format("%d/%d", math.floor(hum.Health), math.floor(hum.MaxHealth))
+                        end
                     end
                 end
             end
         end
-        for plr, obj in pairs(esp) do if not seen[plr] then obj.bill:Destroy(); obj.hl:Destroy(); esp[plr] = nil end end
+        -- remove stale
+        for plr, obj in pairs(esp) do
+            if not seen[plr] then
+                if obj.bill and obj.bill.Parent then obj.bill:Destroy() end
+                if obj.hl   and obj.hl.Parent   then obj.hl:Destroy()   end
+                if obj.hpBg and obj.hpBg.Parent then obj.hpBg:Destroy() end
+                esp[plr] = nil
+            end
+        end
     end)
+
+    -- mod detection (unchanged)
     local lastMods, nextModScan = {}, 0
     connect(RunService.Heartbeat, function()
         local groupId = tonumber(state.group)
@@ -1016,48 +1196,53 @@ local function installVillage()
                     if ok and rank >= 240 then
                         lastMods[plr] = true; message("Staff detected: " .. plr.Name)
                         if state.modAction == "Webhook" or state.modAction == "Leave + Webhook" then sendHook("Staff detected: " .. plr.Name) end
-                        if state.modAction == "Leave" or state.modAction == "Leave + Webhook" then player:Kick("Staff detected") end
+                        if state.modAction == "Leave"   or state.modAction == "Leave + Webhook" then player:Kick("Staff detected") end
                     end
                 end
             end
         end)
     end)
     connect(Players.PlayerRemoving, function(plr) lastMods[plr] = nil end)
+
+    -- ── UI ────────────────────────────────────────────────────
     local Farm = Window:Page({Name="Farm"})
     local Jobs = Farm:Section({Name="Missions", Side=1})
-    status = Jobs:Label({Name="Farm stopped"})
+    status      = Jobs:Label({Name="Farm stopped"})
     boardStatus = Jobs:Label({Name="Mission board idle"})
     local masterToggle = Jobs:Toggle({Name="Auto farm", Flag="fv_master", Default=false, Callback=function(v) if v then start() else stopFarm() end end})
-    Jobs:Toggle({Name="Delivery", Flag="fv_delivery", Default=false, Callback=function(v) state.delivery=v; if state.running then launchWorker() end end})
-    Jobs:Toggle({Name="Trash / click items", Flag="fv_trash", Default=false, Callback=function(v) state.trash=v; if state.running then launchWorker() end end})
-    Jobs:Toggle({Name="Accept missions", Flag="fv_mission", Default=false, Callback=function(v) state.mission=v; if state.running then launchWorker() end end})
-    Jobs:Toggle({Name="Rescue", Flag="fv_rescue", Default=false, Callback=function(v) state.rescue=v; if state.running then launchWorker() end end})
-    Jobs:Toggle({Name="Underground rescue M1", Flag="fv_rescue_m1", Default=false, Callback=function(v) state.rescueM1=v; if state.running then launchWorker() end end})
-    Jobs:Slider({Name="M1 depth", Flag="fv_m1_depth", Min=2, Max=15, Default=6, Callback=function(v) state.m1Depth=v end})
-    Jobs:Slider({Name="M1 interval", Flag="fv_m1_interval", Min=0.1, Max=1, Default=0.2, Decimals=0.05, Callback=function(v) state.m1Interval=v end})
+    Jobs:Toggle({Name="Delivery",                 Flag="fv_delivery",   Default=false, Callback=function(v) state.delivery=v;  if state.running then launchWorker() end end})
+    Jobs:Toggle({Name="Trash / click items",      Flag="fv_trash",      Default=false, Callback=function(v) state.trash=v;     if state.running then launchWorker() end end})
+    Jobs:Toggle({Name="Accept missions",          Flag="fv_mission",    Default=false, Callback=function(v) state.mission=v;   if state.running then launchWorker() end end})
+    Jobs:Toggle({Name="Rescue",                   Flag="fv_rescue",     Default=false, Callback=function(v) state.rescue=v;    if state.running then launchWorker() end end})
+    Jobs:Toggle({Name="Underground rescue M1",    Flag="fv_rescue_m1",  Default=false, Callback=function(v) state.rescueM1=v;  if state.running then launchWorker() end end})
+    Jobs:Slider({Name="M1 depth",     Flag="fv_m1_depth",    Min=2,   Max=15,  Default=6,   Callback=function(v) state.m1Depth=v    end})
+    Jobs:Slider({Name="M1 interval",  Flag="fv_m1_interval", Min=0.1, Max=1,   Default=0.2, Decimals=0.05, Callback=function(v) state.m1Interval=v end})
+
     local Quick = Farm:Section({Name="Quick actions", Side=2})
-    Quick:Button({Name="Delivery once", Callback=function() runOnce(delivery) end})
-    Quick:Button({Name="Trash once", Callback=function() runOnce(trash) end})
+    Quick:Button({Name="Delivery once",      Callback=function() runOnce(delivery) end})
+    Quick:Button({Name="Trash once",         Callback=function() runOnce(trash)    end})
     Quick:Button({Name="Accept mission now", Callback=requestBoard})
-    Quick:Button({Name="Rescue once", Callback=function() runOnce(rescue) end})
+    Quick:Button({Name="Rescue once",        Callback=function() runOnce(rescue)   end})
+
     local FarmSettings = Window:Page({Name="Route"})
     local Move = FarmSettings:Section({Name="Route", Side=1})
-    Move:Dropdown({Name="Village", Flag="fv_village", Items={"Leaf","Sand","Stone","Mist","Cloud","Rogue"}, Default="Leaf", Callback=function(v) state.village=v end})
-    Move:Dropdown({Name="Movement method", Flag="fv_method", Items={"TP","Tween","Underground","Walk","Silent"}, Default="Tween", Callback=function(v) state.method=v end})
-    Move:Slider({Name="Tween speed", Flag="fv_tween_speed", Min=40, Max=400, Default=120, Callback=function(v) state.speed=v end})
-    Move:Slider({Name="Underground depth", Flag="fv_depth", Min=10, Max=100, Default=40, Callback=function(v) state.depth=v end})
-    Move:Slider({Name="Fire delay", Flag="fv_delay", Min=0.05, Max=1, Default=0.15, Decimals=0.05, Callback=function(v) state.fireDelay=v end})
+    Move:Dropdown({Name="Village",           Flag="fv_village", Items={"Leaf","Sand","Stone","Mist","Cloud","Rogue"}, Default="Leaf", Callback=function(v) state.village=v end})
+    Move:Dropdown({Name="Movement method",   Flag="fv_method",  Items={"TP","Tween","Underground","Walk","Silent"},  Default="Tween", Callback=function(v) state.method=v end})
+    Move:Slider({Name="Tween speed",         Flag="fv_tween_speed", Min=40, Max=400, Default=120, Callback=function(v) state.speed=v end})
+    Move:Slider({Name="Underground depth",   Flag="fv_depth",       Min=10, Max=100, Default=40,  Callback=function(v) state.depth=v end})
+    Move:Slider({Name="Fire delay",          Flag="fv_delay",       Min=0.05, Max=1, Default=0.15, Decimals=0.05, Callback=function(v) state.fireDelay=v end})
     local Other = FarmSettings:Section({Name="Mission settings", Side=2})
-    Other:Slider({Name="Trash wait", Flag="fv_trash_wait", Min=0.5, Max=10, Default=3, Decimals=0.5, Callback=function(v) state.trashWait=v end})
-    Other:Slider({Name="Silent trash depth", Flag="fv_trash_depth", Min=1, Max=15, Default=3, Callback=function(v) state.trashDepth=v end})
-    Other:Slider({Name="Rescue fire count", Flag="fv_rescue_fires", Min=1, Max=10, Default=3, Callback=function(v) state.rescueFires=math.floor(v) end})
-    Other:Slider({Name="Board delay", Flag="fv_board_delay", Min=0.5, Max=5, Default=1.5, Decimals=0.5, Callback=function(v) state.boardPause=v end})
+    Other:Slider({Name="Trash wait",         Flag="fv_trash_wait",    Min=0.5, Max=10, Default=3,   Decimals=0.5, Callback=function(v) state.trashWait=v end})
+    Other:Slider({Name="Silent trash depth", Flag="fv_trash_depth",   Min=1,   Max=15, Default=3,   Callback=function(v) state.trashDepth=v end})
+    Other:Slider({Name="Rescue fire count",  Flag="fv_rescue_fires",  Min=1,   Max=10, Default=3,   Callback=function(v) state.rescueFires=math.floor(v) end})
+    Other:Slider({Name="Board delay",        Flag="fv_board_delay",   Min=0.5, Max=5,  Default=1.5, Decimals=0.5, Callback=function(v) state.boardPause=v end})
     Other:Toggle({Name="Safe spot after jobs", Flag="fv_safe", Default=false, Callback=function(v) state.safe=v end})
     Other:Button({Name="Go to safe spot", Callback=function() if not busy then teleport(safePos) end end})
     for _, name in ipairs({"Leaf","Sand","Stone","Mist"}) do
         local selected = name
         Other:Button({Name="Teleport to "..selected, Callback=function() if not busy then teleport(villages[selected]) end end})
     end
+
     local renderingDisabled = false
     local renderStatus
     local function setRenderingDisabled(value)
@@ -1069,54 +1254,105 @@ local function installVillage()
             if renderStatus and alive then renderStatus:SetText(value and "3D rendering off" or "3D rendering on") end
         elseif renderStatus and alive then renderStatus:SetText("3D rendering control unavailable") end
     end
+
     local Motion = Window:Page({Name="Player"})
     local Movement = Motion:Section({Name="Player", Side=1})
-    Movement:Toggle({Name="Speed", Flag="fv_speed", Default=false, Callback=function(v) state.speedOn=v end})
-    Movement:Slider({Name="Walk speed", Flag="fv_walk_speed", Min=16, Max=200, Default=32, Callback=function(v) state.walkSpeed=v end})
-    Movement:Toggle({Name="Fly", Flag="fv_fly", Default=false, Callback=function(v) state.fly=v; if not v then stopFly() end end})
-    Movement:Slider({Name="Fly speed", Flag="fv_fly_speed", Min=10, Max=300, Default=60, Callback=function(v) state.flySpeed=v end})
-    Movement:Toggle({Name="Noclip", Flag="fv_noclip", Default=false, Callback=function(v) state.noclip=v; if not v then restoreCollisions() end end})
-    Movement:Toggle({Name="Infinite jump", Flag="fv_jump", Default=false, Callback=function(v) state.jump=v end})
+    Movement:Toggle({Name="Speed",          Flag="fv_speed",      Default=false, Callback=function(v) state.speedOn=v end})
+    Movement:Slider({Name="Walk speed",     Flag="fv_walk_speed", Min=16, Max=200, Default=32, Callback=function(v) state.walkSpeed=v end})
+    Movement:Toggle({Name="Fly",            Flag="fv_fly",        Default=false, Callback=function(v) state.fly=v; if not v then stopFly() end end})
+    Movement:Slider({Name="Fly speed",      Flag="fv_fly_speed",  Min=10, Max=300, Default=60, Callback=function(v) state.flySpeed=v end})
+    Movement:Toggle({Name="Noclip",         Flag="fv_noclip",     Default=false, Callback=function(v) state.noclip=v; if not v then restoreCollisions() end end})
+
+    -- ── Infinite jump + limiter UI ────────────────────────────
+    Movement:Toggle({
+        Name = "Infinite jump",
+        Flag = "fv_jump",
+        Default = false,
+        Callback = function(v)
+            state.jump       = v
+            state._jumpCount = 0   -- reset counter when toggled
+            state._lastJump  = 0
+        end
+    })
+    Movement:Slider({
+        Name     = "Jump limit  (0 = unlimited)",
+        Flag     = "fv_jump_limit",
+        Min      = 0, Max = 50, Default = 0, Decimals = 0,
+        Callback = function(v)
+            state.jumpLimit  = math.floor(v)
+            state._jumpCount = 0   -- reset when limit changes
+            if alive then message(v == 0 and "Jump limit: unlimited" or "Jump limit: " .. math.floor(v)) end
+        end
+    })
+    Movement:Slider({
+        Name     = "Jump cooldown",
+        Flag     = "fv_jump_cd",
+        Min      = 0.05, Max = 2, Default = 0.3, Decimals = 0.05, Suffix = "s",
+        Callback = function(v) state.jumpCooldown = v end
+    })
+    Movement:Button({
+        Name = "Reset jump counter",
+        Callback = function()
+            state._jumpCount = 0; state._lastJump = 0
+            message("Jump counter reset (0 / " .. (state.jumpLimit > 0 and tostring(state.jumpLimit) or "∞") .. ")")
+        end
+    })
+
     renderStatus = Movement:Label({Name="3D rendering on"})
     Movement:Toggle({Name="Disable 3D rendering", Flag="fv_render_off", Default=false, Callback=setRenderingDisabled})
     Movement:Button({Name="Remove SelfHarm again", Callback=function()
         local remote = ReplicatedStorage:FindFirstChild("SelfHarm")
         if remote then removeSelfHarm(remote) else message("SelfHarm already absent") end
     end})
+
     local ESP = Motion:Section({Name="Player ESP", Side=2})
-    ESP:Toggle({Name="ESP", Flag="fv_esp", Default=false, Callback=function(v) state.esp=v; if not v then clearEsp() end end})
-    ESP:Toggle({Name="Highlight", Flag="fv_esp_box", Default=true, Callback=function(v) state.espBox=v end})
-    ESP:Toggle({Name="Names", Flag="fv_esp_name", Default=true, Callback=function(v) state.espName=v end})
-    ESP:Toggle({Name="Distance", Flag="fv_esp_distance", Default=true, Callback=function(v) state.espDistance=v end})
-    ESP:Slider({Name="ESP distance", Flag="fv_esp_max", Min=100, Max=5000, Default=2000, Callback=function(v) state.espMax=v end})
+    ESP:Toggle({Name="ESP",            Flag="fv_esp",          Default=false, Callback=function(v) state.esp=v; if not v then clearEsp() end end})
+    ESP:Toggle({Name="Highlight",      Flag="fv_esp_box",      Default=true,  Callback=function(v) state.espBox=v end})
+    ESP:Toggle({Name="Names",          Flag="fv_esp_name",     Default=true,  Callback=function(v) state.espName=v end})
+    ESP:Toggle({Name="Distance",       Flag="fv_esp_distance", Default=true,  Callback=function(v) state.espDistance=v end})
+    -- ── health bar toggle ─────────────────────────────────────
+    ESP:Toggle({
+        Name    = "Health bars",
+        Flag    = "fv_esp_health",
+        Default = true,
+        Callback= function(v)
+            state.espHealth = v
+            -- hide existing bars immediately
+            for _, obj in pairs(esp) do if obj.hpBg then obj.hpBg.Enabled = v end end
+        end
+    })
+    ESP:Slider({Name="ESP distance",   Flag="fv_esp_max",      Min=100, Max=5000, Default=2000, Callback=function(v) state.espMax=v end})
     ESP:Label({Name="ESP colour"}):Colorpicker({Flag="fv_esp_color", Default=state.espColor, Callback=function(v) state.espColor=v end})
+
     local Reports = Window:Page({Name="Session"})
     local Session = Reports:Section({Name="Stats", Side=1})
     stats = Session:Label({Name="Ryo +0 | Delivery 0 | Trash 0 | Rescue 0"})
-    Session:Button({Name="Refresh stats", Callback=updateStats})
-    Session:Button({Name="Reset session", Callback=function() started, startMoney, deliveries, trashed, rescues=os.clock(),money(),0,0,0; updateStats() end})
-    Session:Button({Name="Stop farm", Callback=function() masterToggle:Set(false) end})
-    Session:Button({Name="Unload", Callback=function() Library:Exit() end})
+    Session:Button({Name="Refresh stats",  Callback=updateStats})
+    Session:Button({Name="Reset session",  Callback=function() started,startMoney,deliveries,trashed,rescues=os.clock(),money(),0,0,0; updateStats() end})
+    Session:Button({Name="Stop farm",      Callback=function() masterToggle:Set(false) end})
+    Session:Button({Name="Unload",         Callback=function() Library:Exit() end})
     local Hook = Reports:Section({Name="Webhook", Side=2})
-    Hook:Toggle({Name="Webhook enabled", Flag="fv_hook", Default=false, Callback=function(v) state.webhook=v end})
-    Hook:Textbox({Name="Webhook URL", Flag="fv_hook_url", Default="", Finished=true, Callback=function(v) state.hookUrl=tostring(v) end})
-    Hook:Slider({Name="Interval (seconds)", Flag="fv_hook_interval", Min=15, Max=1800, Default=60, Callback=function(v) state.hookInterval=v end})
-    Hook:Slider({Name="Ryo goal", Flag="fv_goal_money", Min=1000, Max=10000000, Default=100000, Callback=function(v) state.goalMoney=v end})
-    Hook:Slider({Name="Delivery goal", Flag="fv_goal_del", Min=1, Max=500, Default=50, Callback=function(v) state.goalDelivery=v end})
-    Hook:Slider({Name="Trash goal", Flag="fv_goal_trash", Min=1, Max=500, Default=30, Callback=function(v) state.goalTrash=v end})
-    Hook:Slider({Name="Rescue goal", Flag="fv_goal_rescue", Min=1, Max=500, Default=20, Callback=function(v) state.goalRescue=v end})
-    Hook:Button({Name="Test webhook", Callback=function() task.spawn(function() sendHook("Test") end) end})
+    Hook:Toggle({Name="Webhook enabled",  Flag="fv_hook",          Default=false, Callback=function(v) state.webhook=v end})
+    Hook:Textbox({Name="Webhook URL",     Flag="fv_hook_url",      Default="",    Finished=true, Callback=function(v) state.hookUrl=tostring(v) end})
+    Hook:Slider({Name="Interval (sec)",   Flag="fv_hook_interval", Min=15, Max=1800, Default=60, Callback=function(v) state.hookInterval=v end})
+    Hook:Slider({Name="Ryo goal",         Flag="fv_goal_money",    Min=1000, Max=10000000, Default=100000, Callback=function(v) state.goalMoney=v end})
+    Hook:Slider({Name="Delivery goal",    Flag="fv_goal_del",      Min=1, Max=500, Default=50, Callback=function(v) state.goalDelivery=v end})
+    Hook:Slider({Name="Trash goal",       Flag="fv_goal_trash",    Min=1, Max=500, Default=30, Callback=function(v) state.goalTrash=v end})
+    Hook:Slider({Name="Rescue goal",      Flag="fv_goal_rescue",   Min=1, Max=500, Default=20, Callback=function(v) state.goalRescue=v end})
+    Hook:Button({Name="Test webhook",     Callback=function() task.spawn(function() sendHook("Test") end) end})
     local Moderation = Reports:Section({Name="Staff", Side=1})
-    Moderation:Textbox({Name="Group ID", Flag="fv_group", Default="", Finished=true, Callback=function(v) state.group=tostring(v); lastMods={} end})
-    Moderation:Dropdown({Name="Action", Flag="fv_mod_action", Items={"Notify","Leave","Webhook","Leave + Webhook"}, Default="Notify", Callback=function(v) state.modAction=v end})
-    Moderation:Toggle({Name="Staff detection", Flag="fv_mod", Default=false, Callback=function(v) state.mod=v; lastMods={} end})
+    Moderation:Textbox({Name="Group ID",  Flag="fv_group",      Default="", Finished=true, Callback=function(v) state.group=tostring(v); lastMods={} end})
+    Moderation:Dropdown({Name="Action",   Flag="fv_mod_action", Items={"Notify","Leave","Webhook","Leave + Webhook"}, Default="Notify", Callback=function(v) state.modAction=v end})
+    Moderation:Toggle({Name="Staff detection", Flag="fv_mod",   Default=false, Callback=function(v) state.mod=v; lastMods={} end})
+
     removeSelfHarm(ReplicatedStorage:FindFirstChild("SelfHarm"))
+
     return function()
         state.running=false; cancel(); setRenderingDisabled(false); stopFly(); restoreCollisions(); restoreSpeed(); clearEsp(); espFolder:Destroy()
     end
 end
-local stopVillage = installVillage()
 
+local stopVillage = installVillage()
 Window:InitSettings()
 
 local function stop()
@@ -1142,13 +1378,12 @@ connect(Library.Holder.Instance.Destroying, stop)
 local function sendControl(action)
     if controlPending then return end
     if type(requestFn) ~= "function" or not data or not data.controls or not data.controls[action] then
-        controlMessage, controlMessageUntil = "Control unavailable", os.clock() + 3
-        return
+        controlMessage, controlMessageUntil = "Control unavailable", os.clock() + 3; return
     end
     controlPending = true
     task.spawn(function()
-        local success, response = pcall(requestFn, {Url = "http://127.0.0.1:8787/control", Method = "POST",
-            Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode({action = action})})
+        local success, response = pcall(requestFn, {Url="http://127.0.0.1:8787/control", Method="POST",
+            Headers={["Content-Type"]="application/json"}, Body=HttpService:JSONEncode({action=action})})
         if not alive then return end
         local decoded, result = false, nil
         if success and type(response) == "table" then
@@ -1195,10 +1430,10 @@ local function updateDisplay(now)
             progress, fraction = clock(position) .. " / " .. clock(length), position / length
             if type(data.lyrics) == "table" and #data.lyrics > 0 then
                 local index = lyricAt(data.lyrics, position / 1000 + settings.offset)
-                lyricKey = song .. "\0" .. artist .. "\0" .. tostring(index)
-                actualLine = index > 0 and (data.lyrics[index].text or "") or ""
-                line = actualLine ~= "" and actualLine or "Instrumental"
-                following = data.lyrics[index + 1] and data.lyrics[index + 1].text or ""
+                lyricKey    = song .. "\0" .. artist .. "\0" .. tostring(index)
+                actualLine  = index > 0 and (data.lyrics[index].text or "") or ""
+                line        = actualLine ~= "" and actualLine or "Instrumental"
+                following   = data.lyrics[index + 1] and data.lyrics[index + 1].text or ""
             else
                 line = data.lyrics_status == "plain" and "Plain lyrics in menu (no timestamps)" or "Synced lyrics unavailable"
             end
@@ -1206,36 +1441,39 @@ local function updateDisplay(now)
             line = "Timeline unavailable"
         end
     end
-    text(Song, "Track: " .. song); text(Artist, "Artist: " .. artist); text(Album, "Album: " .. album)
-    text(Status, "Status: " .. state .. (settings.waves and not spectrumAvailable and " • audio unavailable" or "")); text(Progress, "Progress: " .. progress)
-    text(Current, data and data.lyrics_status == "plain" and data.lyrics_plain or line); text(Next, following ~= "" and ("Next: " .. following) or "")
-    title.Text, artistLabel.Text, timeLabel.Text = song, artist, progress
+    text(Song,   "Track: "    .. song)
+    text(Artist, "Artist: "   .. artist)
+    text(Album,  "Album: "    .. album)
+    text(Status, "Status: "   .. state .. (settings.waves and not spectrumAvailable and " • audio unavailable" or ""))
+    text(Progress, "Progress: " .. progress)
+    text(Current, data and data.lyrics_status == "plain" and data.lyrics_plain or line)
+    text(Next,    following ~= "" and ("Next: " .. following) or "")
+    titleLbl.Text, artistLabel.Text, timeLabel.Text = song, artist, progress
     playButton.Text = playing and "PAUSE" or "PLAY"
     local caps = data and data.controls or {}
     playButton.TextColor3 = caps.play_pause and textColor or dim
-    nextButton.TextColor3 = caps.next and textColor or dim
-    progressFill.Size = UDim2.fromScale(fraction, 1)
+    nextButton.TextColor3 = caps.next       and textColor or dim
+    progressFill.Size     = UDim2.fromScale(fraction, 1)
     hudStatus.Text = now < controlMessageUntil and controlMessage or
         (settings.lyrics and actualLine ~= "" and actualLine or
         (not data and offline or (spectrumAvailable and state or state .. " • audio unavailable")))
     local newLine = settings.sky and settings.lyrics and actualLine or ""
-    if newLine ~= "" and skyAnchorKey ~= lyricKey then
-        skyAnchorKey, skyOrigin = lyricKey, nil
-    end
+    if newLine ~= "" and skyAnchorKey ~= lyricKey then skyAnchorKey, skyOrigin = lyricKey, nil end
     if skyLine ~= newLine then
         previousSkyLine, skyLine, skyTransition = skyLine, newLine, now
         skyOld.Text, skyNew.Text = previousSkyLine, skyLine
     end
 end
+
 local lastTextUpdate = 0
 connect(RunService.RenderStepped, function(dt)
     local now = os.clock()
     if now - lastTextUpdate >= 0.1 then lastTextUpdate = now; updateDisplay(now) end
     local accent = Library.Theme["Accent"]
     accentLine.BackgroundColor3, progressFill.BackgroundColor3 = accent, accent
-    local active = data and data.token_ok and (data.source == "window" or (data.source == "smtc" and data.playing)) and spectrumAvailable and settings.waves
+    local waveActive = data and data.token_ok and (data.source == "window" or (data.source == "smtc" and data.playing)) and spectrumAvailable and settings.waves
     for i, bar in ipairs(bars) do
-        local target = active and math.clamp(((tonumber(spectrum[i]) or 0) * settings.gain) ^ 0.8, 0, 1) or 0
+        local target = waveActive and math.clamp(((tonumber(spectrum[i]) or 0) * settings.gain) ^ 0.8, 0, 1) or 0
         local rate = target > displayedBands[i] and 26 or 7
         displayedBands[i] = displayedBands[i] + (target - displayedBands[i]) * (1 - math.exp(-math.min(dt, 0.25) * rate))
         local height = 2 + math.floor(26 * displayedBands[i])
@@ -1243,7 +1481,7 @@ connect(RunService.RenderStepped, function(dt)
         bar.BackgroundColor3, bar.BackgroundTransparency = accent, 0.85 - 0.7 * displayedBands[i]
     end
     local character = Players.LocalPlayer and Players.LocalPlayer.Character
-    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local root      = character and character:FindFirstChild("HumanoidRootPart")
     if morph.model then
         if morph.root ~= root or not root or not root.Parent then clearMorph()
         else
@@ -1271,12 +1509,12 @@ connect(RunService.RenderStepped, function(dt)
         skyPart.Position = skyOrigin + skyDirection * settings.skyDistance + Vector3.new(0, settings.skyHeight, 0)
         skyGui.Enabled = true
         local alpha = math.clamp((now - skyTransition) / settings.fade, 0, 1)
-        skyNew.TextTransparency = skyLine ~= "" and (1 - alpha) or 1
-        skyOld.TextTransparency = previousSkyLine ~= "" and alpha or 1
-        skyNew.TextStrokeTransparency = skyLine ~= "" and (1 - alpha * 0.7) or 1
-        skyOld.TextStrokeTransparency = previousSkyLine ~= "" and (0.3 + alpha * 0.7) or 1
+        skyNew.TextTransparency      = skyLine          ~= "" and (1 - alpha)        or 1
+        skyOld.TextTransparency      = previousSkyLine  ~= "" and alpha               or 1
+        skyNew.TextStrokeTransparency= skyLine          ~= "" and (1 - alpha * 0.7)  or 1
+        skyOld.TextStrokeTransparency= previousSkyLine  ~= "" and (0.3 + alpha * 0.7) or 1
         skyNew.TextColor3, skyOld.TextColor3 = settings.skyColor, settings.skyColor
-        skyNew.TextSize, skyOld.TextSize = settings.skySize, settings.skySize
+        skyNew.TextSize,   skyOld.TextSize   = settings.skySize,   settings.skySize
         if alpha >= 1 then previousSkyLine = "" end
     else
         skyGui.Enabled = false
@@ -1286,7 +1524,7 @@ end)
 task.spawn(function()
     if type(requestFn) ~= "function" then offline = "Executor HTTP unavailable"; return end
     while alive do
-        local success, response = pcall(requestFn, {Url = "http://127.0.0.1:8787/now-playing", Method = "GET"})
+        local success, response = pcall(requestFn, {Url="http://127.0.0.1:8787/now-playing", Method="GET"})
         if not alive then break end
         local code = success and type(response) == "table" and (response.StatusCode or response.status_code)
         if success and type(response) == "table" and (not code or code == 200) then
@@ -1297,11 +1535,12 @@ task.spawn(function()
         task.wait(1)
     end
 end)
+
 task.spawn(function()
     if type(requestFn) ~= "function" then return end
     while alive do
         if settings.waves and settings.hud then
-            local success, response = pcall(requestFn, {Url = "http://127.0.0.1:8787/visualizer", Method = "GET"})
+            local success, response = pcall(requestFn, {Url="http://127.0.0.1:8787/visualizer", Method="GET"})
             if not alive then break end
             local code = success and type(response) == "table" and (response.StatusCode or response.status_code)
             if success and type(response) == "table" and (not code or code == 200) then
@@ -1315,7 +1554,6 @@ task.spawn(function()
     end
 end)
 
--- Executors load remote cover bytes through a local asset, rather than an HTTP ImageLabel URL.
 task.spawn(function()
     local loaded, tried, nextAttempt = "", "", 0
     local assetFn = getcustomasset or getsynasset
@@ -1326,7 +1564,7 @@ task.spawn(function()
         if path ~= loaded then artworkImage.Visible = false end
         if path ~= "" and (path ~= tried or (path ~= loaded and os.clock() >= nextAttempt)) and path:match("^/album%-art%?key=%x+$") then
             tried, nextAttempt = path, os.clock() + 30
-            local success, response = pcall(requestFn, {Url = "http://127.0.0.1:8787" .. path, Method = "GET"})
+            local success, response = pcall(requestFn, {Url="http://127.0.0.1:8787" .. path, Method="GET"})
             if not alive then break end
             if success and type(response) == "table" and (response.StatusCode or response.status_code) == 200 then
                 local bytes = response.Body or response.body
